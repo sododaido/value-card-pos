@@ -1,0 +1,64 @@
+// ไฟล์: prisma/schema.prisma
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = "file:./dev.db"
+}
+
+// 1. ตารางสมาชิก
+model Member {
+  id        String   @id @default(uuid())
+  name      String
+  phone     String   @unique
+  card_id   String   @unique // รหัสบัตร (อาจใช้เบอร์โทร หรือ Generate เอง)
+  points    Int      @default(0)
+  tier      String   @default("Bronze") // ระดับสมาชิก: Bronze, Silver, Gold
+  totalSpent Float   @default(0)        // ยอดใช้จ่ายสะสม (เอาไว้คำนวณ Tier)
+  createdAt DateTime @default(now())
+  
+  transactions Transaction[]
+}
+
+// 2. ตารางประวัติการทำรายการ (จำเป็นสำหรับ Dashboard Real-time)
+model Transaction {
+  id        String   @id @default(uuid())
+  type      String   // "TOPUP" (เติมเงิน) หรือ "PAYMENT" (ชำระเงิน)
+  amount    Float
+  points    Int      @default(0) // แต้มที่ได้ (+) หรือ ใช้ไป (-)
+  note      String?
+  createdAt DateTime @default(now())
+  
+  memberId  String?
+  member    Member?   @relation(fields: [memberId], references: [id])
+}
+
+// 3. ตารางตั้งค่าร้านค้า (เก็บชื่อร้าน, เปิดปิดระบบแต้ม)
+model StoreSetting {
+  id              String  @id @default(uuid())
+  name            String  @default("My POS Shop")
+  branch          String  @default("Headquarter")
+  isPointSystem   Boolean @default(true) // เปิด/ปิดระบบแต้ม
+  isAutoPrint     Boolean @default(false)
+}
+
+// 4. ตารางโปรโมชั่น (ส่วนลด)
+model Promotion {
+  id        String   @id @default(uuid())
+  name      String
+  type      String   @default("fixed") // "fixed" (ลดเป็นบาท)
+  value     Float    // มูลค่าส่วนลด
+  isActive  Boolean  @default(true)
+}
+
+// 5. ตารางระดับสมาชิก (Member Tier)
+model MemberTier {
+  id          String @id @default(uuid())
+  name        String @unique // Bronze, Silver, Gold
+  minSpend    Float  // ยอดใช้จ่ายสะสมขั้นต่ำเพื่อขึ้น Tier นี้
+  multiplier  Float  @default(1.0) // ตัวคูณแต้ม (เช่น x1, x1.5)
+  color       String @default("#cd7f32") // สีของบัตร
+}
