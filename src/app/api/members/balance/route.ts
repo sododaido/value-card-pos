@@ -1,14 +1,10 @@
-// ไฟล์: src/app/api/members/balance/route.ts
 import { NextResponse } from "next/server";
-import { PrismaClient } from "@prisma/client";
 import {
   getMemberByCardId,
   updateMember,
   createTransaction,
 } from "@/lib/google-sheets";
 import { calculateTier, calculatePointsEarned, Tier } from "@/lib/tier-logic";
-
-const prisma = new PrismaClient();
 
 export async function POST(request: Request) {
   try {
@@ -24,9 +20,8 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "ไม่พบสมาชิก" }, { status: 404 });
     }
 
-    // 1. ดึงการตั้งค่า
-    const setting = await prisma.storeSetting.findFirst();
-    const isPointSystem = setting?.isPointSystem ?? true;
+    // ค่า Default Setting (เนื่องจากถอด DB ออก)
+    const isPointSystem = true;
 
     const balanceBefore = member.balance;
     let newBalance = member.balance;
@@ -51,20 +46,9 @@ export async function POST(request: Request) {
       newTier = calculateTier(newTotalSpent);
     }
 
-    // ✅ 2. บันทึกลง Database (Prisma) -> ทำทันทีและรอผลเพราะเร็ว
-    const prismaTx = await prisma.transaction.create({
-      data: {
-        type: type,
-        amount: Number(amount),
-        points: pointsEarned,
-        note: note || "",
-        createdAt: new Date(),
-      },
-    });
-
-    // 🚀 3. บันทึกลง Google Sheets -> สั่งทำแต่ "ไม่ต้องรอ" (Fire and Forget)
-    // วิธีนี้ทำให้หน้าจอได้รับคำตอบทันที ไม่ต้องรอ Google หมุน
-    Promise.all([
+    // 🚀 บันทึกลง Google Sheets
+    // ใช้ await เพื่อให้แน่ใจว่าบันทึกเสร็จก่อนตอบกลับ (เพื่อความชัวร์ในช่วงแรก)
+    await Promise.all([
       updateMember(card_id, {
         balance: newBalance,
         points: newPoints,
@@ -82,11 +66,8 @@ export async function POST(request: Request) {
         staff_name: staff_name || "Staff",
         note: note || "",
       }),
-    ]).catch((err) =>
-      console.error("Google Sheets Sync Error (Background):", err)
-    );
+    ]);
 
-    // ✅ 4. ตอบกลับทันที (ลูกค้ารู้สึกว่าระบบเร็วมาก)
     return NextResponse.json({
       success: true,
       data: {

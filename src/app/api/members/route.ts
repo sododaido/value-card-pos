@@ -1,6 +1,4 @@
-// ไฟล์: src/app/api/members/route.ts
 import { NextResponse } from "next/server";
-import { PrismaClient } from "@prisma/client";
 import {
   getAllMembers,
   getMemberByCardId,
@@ -9,9 +7,7 @@ import {
   updateMember,
 } from "@/lib/google-sheets";
 
-const prisma = new PrismaClient();
-
-// 1. GET: ค้นหาสมาชิก (Search)
+// 1. GET: ค้นหาสมาชิก
 export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
@@ -39,15 +35,13 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: "ไม่พบข้อมูลสมาชิก" }, { status: 404 });
     }
 
-    // ✅ [NEW LOGIC] ตรวจสอบว่าเป็นบัตรเปล่าหรือไม่? (ไม่มีชื่อ หรือชื่อเป็นช่องว่าง)
-    // สมมติว่าบัตรเปล่าใน Sheet คือมี card_id แต่ช่อง name ว่าง
+    // ตรวจสอบบัตร Active
     const isActive = member.name && member.name.trim().length > 0;
 
     if (!isActive) {
-      // ส่งข้อมูลกลับไปพร้อมบอกว่ายังไม่ Active
       return NextResponse.json({
         ...member,
-        isActive: false, // Flag บอกหน้าบ้านว่าต้อง Activate
+        isActive: false,
         message: "บัตรนี้ยังไม่ได้ลงทะเบียน",
       });
     }
@@ -62,7 +56,7 @@ export async function GET(request: Request) {
   }
 }
 
-// 2. POST: สมัครสมาชิกใหม่ (Register) -> โค้ดเดิม ใช้ได้เลย
+// 2. POST: สมัครสมาชิกใหม่
 export async function POST(request: Request) {
   try {
     const body = await request.json();
@@ -84,23 +78,6 @@ export async function POST(request: Request) {
     }
 
     const newMember = await createMember({ name, phone });
-
-    try {
-      await prisma.member.create({
-        data: {
-          name: newMember.name,
-          phone: newMember.phone,
-          card_id: newMember.card_id,
-          points: 0,
-          tier: "Bronze",
-          totalSpent: 0,
-          createdAt: new Date(),
-        },
-      });
-    } catch (dbError) {
-      console.error("Failed to sync member to DB:", dbError);
-    }
-
     return NextResponse.json(newMember);
   } catch (error) {
     console.error("Create Member Error:", error);
@@ -111,7 +88,7 @@ export async function POST(request: Request) {
   }
 }
 
-// 3. PUT: แก้ไขข้อมูลสมาชิก (ใช้สำหรับ Activate บัตรด้วย)
+// 3. PUT: แก้ไขข้อมูลสมาชิก
 export async function PUT(request: Request) {
   try {
     const body = await request.json();
@@ -124,39 +101,10 @@ export async function PUT(request: Request) {
       );
     }
 
-    // อัปเดต Google Sheets (ใช้ updateMember เดิมได้เลย เพราะเป็นการใส่ชื่อลงในช่องว่าง)
     const success = await updateMember(card_id, { name, phone });
 
     if (!success) {
       return NextResponse.json({ error: "Member not found" }, { status: 404 });
-    }
-
-    // ✅ Sync ลง DB ด้วย (กรณี Activate บัตรใหม่ ต้อง Create หรือ Update ใน DB)
-    try {
-      const memberInDb = await prisma.member.findUnique({ where: { card_id } });
-
-      if (memberInDb) {
-        // ถ้ามีใน DB แล้ว (กรณีเคย Sync) -> Update
-        await prisma.member.update({
-          where: { card_id },
-          data: { name, phone },
-        });
-      } else {
-        // ✅ ถ้าไม่มีใน DB (กรณี Activate บัตรเปล่าครั้งแรก) -> Create ใหม่
-        await prisma.member.create({
-          data: {
-            card_id,
-            name,
-            phone,
-            points: 0, // เริ่มต้น 0 เพราะเป็นบัตรเปล่า
-            tier: "Bronze",
-            totalSpent: 0,
-            createdAt: new Date(),
-          },
-        });
-      }
-    } catch (e) {
-      console.error("Failed to sync member activation to DB", e);
     }
 
     return NextResponse.json({ success: true });
