@@ -1,17 +1,23 @@
+// ไฟล์: src/app/api/members/route.ts
 import { NextResponse } from "next/server";
 import {
+  getDoc, // ✅ นำเข้าเพิ่ม
   getAllMembers,
-  getMemberByCardId,
   getMemberByPhone,
   createMember,
   updateMember,
 } from "@/lib/google-sheets";
 
-// 1. GET: ค้นหาสมาชิก
+export const dynamic = "force-dynamic";
+
 export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
     const query = searchParams.get("search");
+
+    // ✅ โหลด Google Sheet เพียงครั้งเดียว
+    const doc = await getDoc();
+    await doc.loadInfo();
 
     if (!query) {
       const members = await getAllMembers();
@@ -19,15 +25,15 @@ export async function GET(request: Request) {
     }
 
     const isPhone = /^\d{9,10}$/.test(query);
-
     let member;
+
     if (isPhone) {
       member = await getMemberByPhone(query);
     } else {
+      // ค้นหาในลิสต์ทั้งหมดเพื่อความรวดเร็ว ลด Request
       const members = await getAllMembers();
-      // ค้นหาจาก Card ID (Case Insensitive)
       member = members.find(
-        (m) => m.card_id.toLowerCase() === query.toLowerCase()
+        (m) => m.card_id && m.card_id.toLowerCase() === query.toLowerCase()
       );
     }
 
@@ -35,39 +41,26 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: "ไม่พบข้อมูลสมาชิก" }, { status: 404 });
     }
 
-    // ตรวจสอบบัตร Active
-    const isActive = member.name && member.name.trim().length > 0;
-
-    if (!isActive) {
-      return NextResponse.json({
-        ...member,
-        isActive: false,
-        message: "บัตรนี้ยังไม่ได้ลงทะเบียน",
-      });
-    }
-
     return NextResponse.json({ ...member, isActive: true });
   } catch (error) {
-    console.error("API Error:", error);
+    console.error("API Error (Members):", error);
+    // ส่งข้อมูล Error ที่ชัดเจนขึ้น
     return NextResponse.json(
-      { error: "Internal Server Error" },
+      {
+        error: error instanceof Error ? error.message : "Internal Server Error",
+      },
       { status: 500 }
     );
   }
 }
 
-// 2. POST: สมัครสมาชิกใหม่
 export async function POST(request: Request) {
   try {
     const body = await request.json();
     const { name, phone } = body;
 
-    if (!name || !phone) {
-      return NextResponse.json(
-        { error: "กรุณากรอกชื่อและเบอร์โทร" },
-        { status: 400 }
-      );
-    }
+    const doc = await getDoc();
+    await doc.loadInfo();
 
     const existingMember = await getMemberByPhone(phone);
     if (existingMember) {
@@ -77,10 +70,13 @@ export async function POST(request: Request) {
       );
     }
 
+    // ✅ เรียกใช้ createMember ที่แก้ไขใหม่ ซึ่งจะคืนค่า card_id จริงจาก Sheet กลับมา
     const newMember = await createMember({ name, phone });
+
+    // คืนข้อมูลสมาชิกใหม่พร้อม card_id ให้หน้าบ้าน
     return NextResponse.json(newMember);
   } catch (error) {
-    console.error("Create Member Error:", error);
+    console.error("POST Member Error:", error);
     return NextResponse.json(
       { error: "Failed to create member" },
       { status: 500 }
@@ -88,25 +84,17 @@ export async function POST(request: Request) {
   }
 }
 
-// 3. PUT: แก้ไขข้อมูลสมาชิก
 export async function PUT(request: Request) {
   try {
     const body = await request.json();
     const { card_id, name, phone } = body;
 
-    if (!card_id || !name || !phone) {
-      return NextResponse.json(
-        { error: "Missing required fields" },
-        { status: 400 }
-      );
-    }
+    const doc = await getDoc();
+    await doc.loadInfo();
 
     const success = await updateMember(card_id, { name, phone });
-
-    if (!success) {
+    if (!success)
       return NextResponse.json({ error: "Member not found" }, { status: 404 });
-    }
-
     return NextResponse.json({ success: true });
   } catch (error) {
     return NextResponse.json(

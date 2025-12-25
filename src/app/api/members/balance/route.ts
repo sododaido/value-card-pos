@@ -3,82 +3,98 @@ import {
   getMemberByCardId,
   updateMember,
   createTransaction,
+  getAppSettings,
+  getTiers, // ✅ เพิ่มการดึงข้อมูล Tiers
+  autoUpdateMemberTier, // ✅ เพิ่มฟังก์ชันอัปเดตระดับอัตโนมัติ
 } from "@/lib/google-sheets";
-import { calculateTier, calculatePointsEarned, Tier } from "@/lib/tier-logic";
 
-export async function POST(request: Request) {
+export const dynamic = "force-dynamic";
+
+export async function POST(req: Request) {
   try {
-    const body = await request.json();
-    const { card_id, type, amount, staff_name, note } = body;
+    const { card_id, type, amount, note } = await req.json();
 
-    if (!card_id || !amount || !type) {
+    if (!card_id || !amount) {
       return NextResponse.json({ error: "ข้อมูลไม่ครบถ้วน" }, { status: 400 });
     }
 
+    // 1. ดึงข้อมูลสมาชิกล่าสุดจาก Sheet
     const member = await getMemberByCardId(card_id);
     if (!member) {
       return NextResponse.json({ error: "ไม่พบสมาชิก" }, { status: 404 });
     }
 
-    // ค่า Default Setting (เนื่องจากถอด DB ออก)
-    const isPointSystem = true;
+    // ✅ ดึงข้อมูลการตั้งค่าและระดับสมาชิกปัจจุบัน
+    const settings = await getAppSettings();
+    const tiers = await getTiers();
+    const currentTier = tiers.find((t) => t.name === member.tier) || tiers[0];
 
-    const balanceBefore = member.balance;
-    let newBalance = member.balance;
-    let newPoints = member.points;
-    let newTotalSpent = member.total_spent;
-    let newTier = member.tier;
+    const currentBalance = member.balance;
+    let newBalance = currentBalance;
     let pointsEarned = 0;
 
-    // === คำนวณยอด ===
+    // 2. คำนวณยอดเงินและตรวจสอบ
     if (type === "TOPUP") {
       newBalance += amount;
-      if (isPointSystem) {
-        pointsEarned = calculatePointsEarned(amount, member.tier as Tier);
-        newPoints += pointsEarned;
+
+      // ✅ คำนวณแต้มจากการเติมเงิน (Multiplier ตามระดับสมาชิก)
+      if (settings.enable_points) {
+        // สูตร: (ยอดเงิน / 100) * ตัวคูณของระดับนั้นๆ
+        pointsEarned = Math.floor((amount / 100) * currentTier.multiplier);
       }
     } else if (type === "PAYMENT") {
-      if (member.balance < amount) {
-        return NextResponse.json({ error: "ยอดเงินไม่พอ" }, { status: 400 });
+      // 🛑 STOP: เช็คเงินก่อนตัด ถ้าไม่พอให้ Error ทันที
+      if (currentBalance < amount) {
+        return NextResponse.json(
+          { error: "ยอดเงินคงเหลือไม่เพียงพอ" },
+          { status: 400 }
+        );
       }
+
       newBalance -= amount;
-      newTotalSpent += amount;
-      newTier = calculateTier(newTotalSpent);
+
+      // (เลือกเปิดได้: หากต้องการให้แต้มตอนชำระเงินแทนการเติมเงิน ให้ย้าย Logic pointsEarned มาไว้ตรงนี้)
     }
 
-    // 🚀 บันทึกลง Google Sheets
-    // ใช้ await เพื่อให้แน่ใจว่าบันทึกเสร็จก่อนตอบกลับ (เพื่อความชัวร์ในช่วงแรก)
-    await Promise.all([
-      updateMember(card_id, {
-        balance: newBalance,
-        points: newPoints,
-        total_spent: newTotalSpent,
-        tier: newTier,
-      }),
-      createTransaction({
-        member_id: member.member_id,
-        card_id: member.card_id,
-        type,
-        amount,
-        balance_before: balanceBefore,
-        balance_after: newBalance,
-        points_earned: pointsEarned,
-        staff_name: staff_name || "Staff",
-        note: note || "",
-      }),
-    ]);
+    // คำนวณยอดใช้จ่ายสะสมใหม่
+    const newTotalSpent =
+      member.total_spent + (type === "PAYMENT" ? amount : 0);
+
+    // 3. อัปเดตสมาชิกลง Google Sheets
+    await updateMember(card_id, {
+      balance: newBalance,
+      points: member.points + pointsEarned,
+      total_spent: newTotalSpent,
+    });
+
+    // ✅ 3.5 ตรวจสอบและอัปเกรดระดับสมาชิกอัตโนมัติ (Auto Tier Upgrade)
+    await autoUpdateMemberTier(card_id, newTotalSpent);
+
+    // 4. บันทึกประวัติ Transaction
+    await createTransaction({
+      member_id: member.member_id,
+      card_id: member.card_id,
+      type,
+      amount,
+      balance_before: currentBalance,
+      balance_after: newBalance,
+      points_earned: pointsEarned,
+      note,
+      staff_name: "Staff",
+    });
 
     return NextResponse.json({
       success: true,
       data: {
         balance: newBalance,
-        points: newPoints,
-        tier: newTier,
-        pointsEarned: pointsEarned,
+        points: member.points + pointsEarned,
       },
     });
   } catch (error) {
-    console.error("Balance Update Error:", error);
-    return NextResponse.json({ error: "Update failed" }, { status: 500 });
+    console.error("Balance API Error:", error);
+    return NextResponse.json(
+      { error: "เกิดข้อผิดพลาดในการทำรายการ" },
+      { status: 500 }
+    );
   }
 }

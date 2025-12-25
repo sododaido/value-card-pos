@@ -10,7 +10,7 @@ import { RecentActivity } from "@/components/pos/recent-activity";
 import { ActionPanel } from "@/components/pos/action-panel";
 import { Separator } from "@/components/ui/separator";
 
-// ✅ Import UI Components สำหรับ Dialog
+// Import UI Components สำหรับ Dialog
 import {
   Dialog,
   DialogContent,
@@ -22,7 +22,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
-import { CreditCard } from "lucide-react";
+import { CreditCard, Loader2 } from "lucide-react";
 
 interface Tier {
   name: string;
@@ -35,13 +35,14 @@ export default function POSPage() {
   const [tiers, setTiers] = useState<Tier[]>([]);
   const [isLoading, setIsLoading] = useState(false);
 
-  // ✅ State สำหรับ Activate Card Dialog
+  // State สำหรับ Activate Card Dialog
   const [isActivateOpen, setIsActivateOpen] = useState(false);
   const [activationData, setActivationData] = useState({
     card_id: "",
     name: "",
     phone: "",
   });
+  const [isActivating, setIsActivating] = useState(false);
 
   useEffect(() => {
     const fetchTiers = async () => {
@@ -83,16 +84,23 @@ export default function POSPage() {
 
       if (!res.ok) throw new Error(data.error || "ไม่พบข้อมูลสมาชิก");
 
-      // ✅ ตรวจสอบสถานะบัตร
-      if (data.isActive === false) {
-        // ถ้าเป็นบัตรเปล่า -> เปิด Dialog ลงทะเบียนทันที
+      // 🔥 แก้ไข Logic การตรวจสอบบัตรใหม่ (ให้ครอบคลุมที่สุด)
+      // เงื่อนไข: ถ้า isActive เป็น false หรือ null หรือ undefined หรือ ไม่มีชื่อ (name ว่าง)
+      // ให้ถือว่าเป็นบัตรใหม่ที่ต้องลงทะเบียน
+      const isInactive =
+        !data.isActive ||
+        data.isActive === "false" ||
+        !data.name ||
+        data.name.trim() === "";
+
+      if (isInactive) {
         setActivationData({ card_id: data.card_id, name: "", phone: "" });
         setIsActivateOpen(true);
         toast.info("พบบัตรใหม่! กรุณาลงทะเบียนเพื่อเปิดใช้งาน");
-        return;
+        return; // จบการทำงานตรงนี้ เพื่อให้ Popup เด้ง
       }
 
-      // ถ้าบัตรปกติ -> แสดงข้อมูล
+      // ถ้าผ่านเงื่อนไขข้างบน แสดงว่าเป็นบัตรเก่าที่มีข้อมูลครบ
       setMember(data);
       toast.success(`สวัสดีคุณ ${data.name}`);
       await fetchHistory(data.card_id);
@@ -103,14 +111,14 @@ export default function POSPage() {
     }
   };
 
-  // ✅ ฟังก์ชัน Activate บัตร
+  // 🔥 ฟังก์ชันลงทะเบียนบัตรใหม่ -> อัปเดตหน้าจอทันที (Manual State Update)
   const handleActivateCard = async () => {
     if (!activationData.name || !activationData.phone) {
       toast.error("กรุณากรอกข้อมูลให้ครบถ้วน");
       return;
     }
 
-    setIsLoading(true);
+    setIsActivating(true);
     try {
       const res = await fetch("/api/members", {
         method: "PUT",
@@ -123,26 +131,28 @@ export default function POSPage() {
       toast.success("เปิดใช้งานบัตรเรียบร้อยแล้ว!");
       setIsActivateOpen(false);
 
-      // ✅ [แก้ไข] เติมฟิลด์ให้ครบตาม Type Member เพื่อแก้ Error TypeScript
+      // ✅ Force Update: สร้างข้อมูล Member ใหม่ขึ้นมาแสดงทันที
+      // (ไม่ต้องรอ fetch เพราะบางที Google Sheet อัปเดตไม่ทัน)
       const newMemberData: Member = {
         card_id: activationData.card_id,
         name: activationData.name,
         phone: activationData.phone,
         points: 0,
         balance: 0,
-        tier: "Bronze",
+        tier: "Bronze", // Default Tier
         total_spent: 0,
-        // ฟิลด์ที่เพิ่มมาให้ครบ Type
-        member_id: activationData.card_id, // ใช้เลขบัตรแทนชั่วคราว
+        member_id: activationData.card_id,
         joined_date: new Date().toISOString(),
         updated_at: new Date().toISOString(),
+        isActive: true, // สำคัญ: กำหนดให้เป็น Active ทันที
       };
+
       setMember(newMemberData);
       setTransactions([]);
     } catch (error) {
       toast.error((error as Error).message);
     } finally {
-      setIsLoading(false);
+      setIsActivating(false);
     }
   };
 
@@ -150,10 +160,10 @@ export default function POSPage() {
     type: "TOPUP" | "PAYMENT",
     amount: number,
     note: string
-  ) => {
+  ): Promise<boolean> => {
     if (!member) {
       toast.error("กรุณาค้นหาสมาชิกก่อนทำรายการ");
-      return;
+      return false;
     }
     setIsLoading(true);
     try {
@@ -163,7 +173,8 @@ export default function POSPage() {
         body: JSON.stringify({ card_id: member.card_id, type, amount, note }),
       });
       const result = await res.json();
-      if (!res.ok) throw new Error(result.error);
+
+      if (!res.ok) throw new Error(result.error || "เกิดข้อผิดพลาด");
 
       setMember((prev) =>
         prev
@@ -176,8 +187,11 @@ export default function POSPage() {
           : null
       );
       await fetchHistory(member.card_id);
+
+      return true;
     } catch (error) {
       toast.error((error as Error).message || "เกิดข้อผิดพลาด");
+      return false;
     } finally {
       setIsLoading(false);
     }
@@ -261,7 +275,7 @@ export default function POSPage() {
         </div>
       </main>
 
-      {/* ✅ Dialog ลงทะเบียนบัตรใหม่ */}
+      {/* Dialog ลงทะเบียนบัตรใหม่ */}
       <Dialog open={isActivateOpen} onOpenChange={setIsActivateOpen}>
         <DialogContent className="sm:max-w-md dark:bg-slate-900 dark:border-slate-800">
           <DialogHeader>
@@ -314,14 +328,19 @@ export default function POSPage() {
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setIsActivateOpen(false)}>
+            <Button
+              variant="outline"
+              onClick={() => setIsActivateOpen(false)}
+              disabled={isActivating}
+            >
               ยกเลิก
             </Button>
             <Button
               onClick={handleActivateCard}
-              disabled={isLoading}
+              disabled={isActivating}
               className="bg-blue-600 hover:bg-blue-700 text-white"
             >
+              {isActivating ? <Loader2 className="animate-spin mr-2" /> : null}
               เปิดใช้งาน
             </Button>
           </DialogFooter>

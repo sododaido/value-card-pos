@@ -1,7 +1,7 @@
 // ไฟล์: src/components/pos/pos-header.tsx
 "use client";
 
-import { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import { useTheme } from "next-themes";
 import {
   Store,
@@ -20,6 +20,7 @@ import {
   Users,
   Moon,
   Sun,
+  Loader2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -68,10 +69,29 @@ interface StoreSetting {
 }
 
 interface Promotion {
-  id?: string;
-  name: string;
-  value: number;
-  type: string;
+  promo_id?: string;
+  promo_name: string;
+  discount_value: number;
+  discount_type: "FIXED" | "PERCENT";
+  is_active: boolean;
+}
+
+interface APIPromotion {
+  promo_id?: string;
+  promo_name?: string;
+  name?: string;
+  discount_value?: number;
+  value?: number;
+  discount_type?: "FIXED" | "PERCENT";
+  is_active?: boolean;
+}
+
+interface APITier {
+  id?: string | number;
+  name?: string;
+  minSpend?: string | number;
+  multiplier?: string | number;
+  color?: string;
 }
 
 interface Tier {
@@ -82,7 +102,11 @@ interface Tier {
   color: string;
 }
 
-export function POSHeader() {
+interface POSHeaderProps {
+  onMemberRegistered?: (cardId: string) => void;
+}
+
+export function POSHeader({ onMemberRegistered }: POSHeaderProps) {
   const { theme, setTheme } = useTheme();
   const [mounted, setMounted] = useState(false);
 
@@ -96,10 +120,9 @@ export function POSHeader() {
 
   // Settings State
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
-  // ✅ ปรับ useState: เริ่มต้นเป็นค่าว่าง รอโหลดข้อมูลจาก DB
   const [setting, setSetting] = useState<StoreSetting>({
-    name: "",
-    branch: "",
+    name: "POS System",
+    branch: "Staff Panel",
     isPointSystem: true,
   });
   const [promotions, setPromotions] = useState<Promotion[]>([]);
@@ -111,59 +134,9 @@ export function POSHeader() {
   const [regData, setRegData] = useState({ name: "", phone: "" });
   const [isRegLoading, setIsRegLoading] = useState(false);
 
-  // --- Effects ---
-
-  useEffect(() => {
-    setMounted(true);
-  }, []);
-
-  // Dashboard Real-time
-  useEffect(() => {
-    let interval: NodeJS.Timeout;
-    if (isDashboardOpen) {
-      fetchDashboard();
-      interval = setInterval(() => {
-        fetchDashboard();
-      }, 5000);
-    }
-    return () => clearInterval(interval);
-  }, [isDashboardOpen, period]);
-
-  // ✅ เพิ่ม useEffect: โหลดข้อมูลร้านค้าทันทีที่เปิดหน้าเว็บ
-  useEffect(() => {
-    fetchSettings();
-  }, []);
-
-  // Load Settings on Open
-  useEffect(() => {
-    if (isSettingsOpen) fetchSettings();
-  }, [isSettingsOpen]);
-
   // --- Functions ---
 
-  const fetchDashboard = async () => {
-    if (!dashboardData) setIsLoadingDash(true);
-    try {
-      const res = await fetch(
-        `/api/dashboard?period=${period}&t=${new Date().getTime()}`
-      );
-      if (!res.ok) {
-        console.error("Dashboard API Error:", res.status, res.statusText);
-        return;
-      }
-      const text = await res.text();
-      if (!text) return;
-      const data = JSON.parse(text);
-      setDashboardData(data);
-    } catch (error) {
-      console.error("Failed to fetch dashboard:", error);
-    } finally {
-      setIsLoadingDash(false);
-    }
-  };
-
-  const fetchSettings = async () => {
-    // ไม่ต้อง set loading นานถ้าเป็นการโหลดเบื้องหลัง
+  const fetchSettings = useCallback(async () => {
     try {
       const res = await fetch(`/api/settings?t=${new Date().getTime()}`);
       if (res.ok) {
@@ -172,17 +145,71 @@ export function POSHeader() {
           setSetting({
             name: data.setting.name || "POS System",
             branch: data.setting.branch || "Staff Panel",
-            isPointSystem: data.setting.isPointSystem,
+            isPointSystem: data.setting.isPointSystem ?? true,
           });
         }
-        if (data.promotions) setPromotions(data.promotions);
-        if (data.tiers) setTiers(data.tiers);
+
+        if (data.promotions) {
+          setPromotions(
+            data.promotions.map((p: APIPromotion) => ({
+              promo_id: p.promo_id,
+              promo_name: p.promo_name || p.name || "โปรโมชั่นไม่มีชื่อ",
+              discount_value: p.discount_value || p.value || 0,
+              discount_type: p.discount_type || "FIXED",
+              is_active: p.is_active ?? true,
+            }))
+          );
+        }
+
+        if (data.tiers && Array.isArray(data.tiers)) {
+          const uniqueTiers = data.tiers.map((t: APITier) => ({
+            id: String(t.id || ""),
+            name: t.name || "ระดับใหม่",
+            minSpend: Number(t.minSpend || 0),
+            multiplier: Number(t.multiplier || 1),
+            color: t.color || "#3b82f6",
+          }));
+          setTiers(uniqueTiers);
+        }
       }
     } catch (error) {
       console.error("Settings Load Error:", error);
-      // toast.error("โหลดการตั้งค่าไม่สำเร็จ"); // ไม่จำเป็นต้องแจ้งเตือนถ้ารีเฟรชหน้าเฉยๆ
     }
-  };
+  }, []);
+
+  const fetchDashboard = useCallback(async () => {
+    if (!dashboardData) setIsLoadingDash(true);
+    try {
+      const res = await fetch(
+        `/api/dashboard?period=${period}&t=${new Date().getTime()}`
+      );
+      if (!res.ok) return;
+      const data = await res.json();
+      setDashboardData(data);
+    } catch (error) {
+      console.error("Failed to fetch dashboard:", error);
+    } finally {
+      setIsLoadingDash(false);
+    }
+  }, [dashboardData, period]);
+
+  // --- Effects ---
+
+  useEffect(() => {
+    setMounted(true);
+    fetchSettings();
+  }, [fetchSettings]);
+
+  useEffect(() => {
+    let interval: NodeJS.Timeout;
+    if (isDashboardOpen) {
+      fetchDashboard();
+      interval = setInterval(fetchDashboard, 5000);
+    }
+    return () => clearInterval(interval);
+  }, [isDashboardOpen, fetchDashboard]);
+
+  // --- Action Handlers ---
 
   const saveSettings = async () => {
     setIsLoadingSettings(true);
@@ -190,14 +217,19 @@ export function POSHeader() {
       const res = await fetch("/api/settings", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ setting, promotions, tiers }),
+        body: JSON.stringify({
+          setting,
+          promotions: promotions.map((p) => ({
+            name: p.promo_name,
+            value: p.discount_value,
+          })),
+          tiers,
+        }),
       });
-      if (!res.ok) throw new Error();
+      if (!res.ok) throw new Error("Save failed");
       toast.success("บันทึกการตั้งค่าเรียบร้อยแล้ว");
       setIsSettingsOpen(false);
-      setTimeout(() => {
-        window.location.reload();
-      }, 500);
+      await fetchSettings();
     } catch (error) {
       toast.error("บันทึกไม่สำเร็จ");
     } finally {
@@ -208,6 +240,7 @@ export function POSHeader() {
   const handleRegister = async () => {
     if (!regData.name || !regData.phone)
       return toast.error("กรุณากรอกข้อมูลให้ครบ");
+
     setIsRegLoading(true);
     try {
       const res = await fetch("/api/members", {
@@ -217,8 +250,11 @@ export function POSHeader() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
-      toast.success(`สมัครสำเร็จ! รหัส: ${data.card_id}`);
+      toast.success(`สมัครสมาชิกสำเร็จ! รหัสบัตร: ${data.card_id}`);
       setIsRegisterOpen(false);
+      if (onMemberRegistered && data.card_id) {
+        onMemberRegistered(data.card_id);
+      }
       setRegData({ name: "", phone: "" });
     } catch (error) {
       toast.error((error as Error).message);
@@ -230,7 +266,12 @@ export function POSHeader() {
   const addPromo = () => {
     setPromotions([
       ...promotions,
-      { name: "ส่วนลดใหม่", value: 0, type: "fixed" },
+      {
+        promo_name: "ส่วนลดใหม่",
+        discount_value: 0,
+        discount_type: "FIXED",
+        is_active: true,
+      },
     ]);
   };
 
@@ -243,13 +284,11 @@ export function POSHeader() {
   const updatePromo = (
     index: number,
     field: keyof Promotion,
-    val: string | number
+    val: string | number | boolean
   ) => {
-    setPromotions((prevPromos) => {
-      const newPromos = [...prevPromos];
-      newPromos[index] = { ...newPromos[index], [field]: val } as Promotion;
-      return newPromos;
-    });
+    const newPromos = [...promotions];
+    newPromos[index] = { ...newPromos[index], [field]: val } as Promotion;
+    setPromotions(newPromos);
   };
 
   const updateTier = (
@@ -257,11 +296,9 @@ export function POSHeader() {
     field: keyof Tier,
     val: string | number
   ) => {
-    setTiers((prevTiers) => {
-      const newTiers = [...prevTiers];
-      newTiers[index] = { ...newTiers[index], [field]: val } as Tier;
-      return newTiers;
-    });
+    const newTiers = [...tiers];
+    newTiers[index] = { ...newTiers[index], [field]: val } as Tier;
+    setTiers(newTiers);
   };
 
   const getPeriodLabel = () => {
@@ -275,65 +312,70 @@ export function POSHeader() {
     }
   };
 
+  if (!mounted) return null;
+
   return (
     <>
-      <header className="h-16 border-b bg-white dark:bg-slate-900 dark:border-slate-800 px-6 flex items-center justify-between sticky top-0 z-10 shadow-sm transition-colors duration-300">
+      {/* ✅ ลดความสูง Header จาก h-16 เป็น h-14 เพื่อเพิ่มพื้นที่แนวตั้ง */}
+      <header className="h-14 border-b bg-white dark:bg-slate-900 dark:border-slate-800 px-4 flex items-center justify-between sticky top-0 z-10 shadow-sm transition-colors duration-300">
         <div className="flex items-center gap-2">
-          <div className="bg-blue-600 p-2 rounded-lg shadow-blue-900/20 shadow-lg">
-            <Store className="h-5 w-5 text-white" />
+          {/* ✅ ปรับขนาด Padding และ Icon ให้เล็กลงเล็กน้อย */}
+          <div className="bg-blue-600 p-1.5 rounded-lg shadow-blue-900/20 shadow-lg">
+            <Store className="h-4 w-4 text-white" />
           </div>
           <div>
-            {/* แสดงชื่อร้านจาก State (ถ้าว่าง แสดง POS System) */}
-            <h1 className="font-bold text-lg leading-none text-slate-800 dark:text-slate-100">
-              {setting.name || "POS System"}
+            <h1 className="font-bold text-base leading-none text-slate-800 dark:text-slate-100">
+              {setting.name}
             </h1>
-            <p className="text-xs text-slate-500 dark:text-slate-400">
-              {setting.branch || "Staff Panel"}
+            <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-0.5">
+              {setting.branch}
             </p>
           </div>
         </div>
 
-        <div className="flex items-center gap-2 md:gap-3">
-          {/* ปุ่มสลับ Theme */}
-          {mounted && (
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
-              className="text-slate-600 hover:text-blue-600 dark:text-slate-400 dark:hover:text-blue-400 mr-2"
-            >
-              {theme === "dark" ? (
-                <Moon className="h-5 w-5" />
-              ) : (
-                <Sun className="h-5 w-5" />
-              )}
-            </Button>
-          )}
+        <div className="flex items-center gap-1.5 md:gap-2">
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
+            className="h-8 w-8 text-slate-600 hover:text-blue-600 dark:text-slate-400 dark:hover:text-blue-400"
+          >
+            {theme === "dark" ? (
+              <Moon className="h-4 w-4" />
+            ) : (
+              <Sun className="h-4 w-4" />
+            )}
+          </Button>
 
+          {/* ✅ ปรับขนาดปุ่มเมนูให้กะทัดรัดขึ้น */}
           <Button
             variant="ghost"
             size="sm"
             onClick={() => setIsDashboardOpen(true)}
-            className="text-slate-600 hover:text-blue-600 dark:text-slate-300 hidden sm:flex"
+            className="h-8 text-xs text-slate-600 hover:text-blue-600 dark:text-slate-300 hidden sm:flex"
           >
-            <LayoutDashboard className="h-4 w-4 mr-2" /> แดชบอร์ด
+            <LayoutDashboard className="h-3.5 w-3.5 mr-1.5" /> แดชบอร์ด
           </Button>
 
           <Button
             variant="ghost"
             size="sm"
             onClick={() => setIsSettingsOpen(true)}
-            className="text-slate-600 hover:text-blue-600 dark:text-slate-300 hidden sm:flex"
+            className="h-8 text-xs text-slate-600 hover:text-blue-600 dark:text-slate-300 hidden sm:flex"
           >
-            <Settings className="h-4 w-4 mr-2" /> ตั้งค่า
+            <Settings className="h-3.5 w-3.5 mr-1.5" /> ตั้งค่า
           </Button>
 
-          <div className="h-6 w-[1px] bg-slate-200 dark:bg-slate-700 mx-1 hidden sm:block"></div>
+          <div className="h-5 w-[1px] bg-slate-200 dark:bg-slate-700 mx-1 hidden sm:block"></div>
 
           <Dialog open={isRegisterOpen} onOpenChange={setIsRegisterOpen}>
             <DialogTrigger asChild>
-              <Button className="gap-2 bg-blue-600 hover:bg-blue-700 text-white shadow-md">
-                <UserPlus className="h-4 w-4" /> New Member
+              {/* ✅ ปรับขนาดปุ่ม New Member ให้เล็กลง */}
+              <Button
+                size="sm"
+                className="h-8 text-xs gap-1.5 bg-blue-600 hover:bg-blue-700 text-white shadow-md"
+              >
+                <UserPlus className="h-3.5 w-3.5" /> New Member
               </Button>
             </DialogTrigger>
             <DialogContent className="bg-white dark:bg-slate-900 dark:border-slate-800">
@@ -370,15 +412,15 @@ export function POSHeader() {
               <DialogFooter>
                 <Button
                   variant="outline"
+                  size="sm"
                   onClick={() => setIsRegisterOpen(false)}
-                  className="dark:bg-slate-800 dark:text-white dark:border-slate-700"
                 >
                   ยกเลิก
                 </Button>
                 <Button
+                  size="sm"
                   onClick={handleRegister}
                   disabled={isRegLoading}
-                  className="bg-blue-600 hover:bg-blue-700 text-white"
                 >
                   ยืนยัน
                 </Button>
@@ -391,124 +433,74 @@ export function POSHeader() {
       {/* --- DASHBOARD POPUP --- */}
       <Dialog open={isDashboardOpen} onOpenChange={setIsDashboardOpen}>
         <DialogContent className="!max-w-[98vw] !w-[98vw] !h-[95vh] flex flex-col p-0 overflow-hidden bg-white dark:bg-slate-950 dark:border-slate-800">
-          <DialogHeader className="px-6 py-4 border-b bg-slate-50 dark:bg-slate-900 dark:border-slate-800 flex flex-row items-center justify-between">
-            <DialogTitle className="flex items-center gap-2 text-2xl text-slate-800 dark:text-white">
-              <BarChart3 className="text-blue-600 h-6 w-6" /> แดชบอร์ดภาพรวม (
+          <DialogHeader className="px-6 py-3 border-b bg-slate-50 dark:bg-slate-900 dark:border-slate-800 flex flex-row items-center justify-between">
+            <DialogTitle className="flex items-center gap-2 text-xl text-slate-800 dark:text-white">
+              <BarChart3 className="text-blue-600 h-5 w-5" /> แดชบอร์ดภาพรวม (
               {getPeriodLabel()})
             </DialogTitle>
-
             <div className="flex gap-2">
-              <div className="flex bg-white dark:bg-slate-800 rounded-lg border dark:border-slate-700 p-1 shadow-sm">
-                <button
-                  onClick={() => setPeriod("today")}
-                  className={`px-3 py-1 text-sm rounded-md transition-all ${
-                    period === "today"
-                      ? "bg-blue-100 text-blue-700 font-bold dark:bg-blue-900 dark:text-blue-200"
-                      : "text-slate-600 hover:bg-slate-50 dark:text-slate-400 dark:hover:bg-slate-700"
-                  }`}
-                >
-                  วันนี้
-                </button>
-                <button
-                  onClick={() => setPeriod("week")}
-                  className={`px-3 py-1 text-sm rounded-md transition-all ${
-                    period === "week"
-                      ? "bg-blue-100 text-blue-700 font-bold dark:bg-blue-900 dark:text-blue-200"
-                      : "text-slate-600 hover:bg-slate-50 dark:text-slate-400 dark:hover:bg-slate-700"
-                  }`}
-                >
-                  สัปดาห์นี้
-                </button>
-                <button
-                  onClick={() => setPeriod("month")}
-                  className={`px-3 py-1 text-sm rounded-md transition-all ${
-                    period === "month"
-                      ? "bg-blue-100 text-blue-700 font-bold dark:bg-blue-900 dark:text-blue-200"
-                      : "text-slate-600 hover:bg-slate-50 dark:text-slate-400 dark:hover:bg-slate-700"
-                  }`}
-                >
-                  เดือนนี้
-                </button>
+              <div className="flex bg-white dark:bg-slate-800 rounded-lg border dark:border-slate-700 p-0.5 shadow-sm">
+                {(["today", "week", "month"] as const).map((p) => (
+                  <button
+                    key={p}
+                    onClick={() => setPeriod(p)}
+                    className={`px-2.5 py-1 text-xs rounded-md transition-all ${
+                      period === p
+                        ? "bg-blue-100 text-blue-700 font-bold dark:bg-blue-900 dark:text-blue-200"
+                        : "text-slate-600 hover:bg-slate-50 dark:text-slate-400 dark:hover:bg-slate-700"
+                    }`}
+                  >
+                    {p === "today"
+                      ? "วันนี้"
+                      : p === "week"
+                      ? "สัปดาห์นี้"
+                      : "เดือนนี้"}
+                  </button>
+                ))}
               </div>
-
               <Button
                 size="sm"
                 variant="outline"
-                onClick={() => fetchDashboard()}
+                className="h-7 text-xs"
+                onClick={fetchDashboard}
                 disabled={isLoadingDash}
-                className="dark:bg-slate-800 dark:text-white dark:border-slate-700"
               >
                 <RefreshCcw
-                  className={`h-4 w-4 mr-2 ${
+                  className={`h-3 w-3 mr-1.5 ${
                     isLoadingDash ? "animate-spin" : ""
                   }`}
                 />
-                {isLoadingDash ? "Updating..." : "อัปเดต"}
+                อัปเดต
               </Button>
             </div>
           </DialogHeader>
 
-          <div className="flex-1 p-6 overflow-y-auto bg-slate-50/50 dark:bg-slate-950/50">
+          <div className="flex-1 p-4 overflow-y-auto bg-slate-50/50 dark:bg-slate-950/50">
             {dashboardData ? (
-              <div className="h-full flex flex-col gap-6">
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                  {/* Card 1 */}
-                  <div className="bg-white dark:bg-slate-900 p-6 rounded-xl shadow-sm border border-slate-100 dark:border-slate-800 relative overflow-hidden">
-                    <div className="absolute top-0 right-0 p-4 opacity-10">
-                      <Wallet className="w-24 h-24 text-green-600" />
-                    </div>
-                    <div className="flex items-center gap-3 mb-2">
-                      <div className="p-2 bg-green-100 dark:bg-green-900/30 rounded-lg">
-                        <Wallet className="h-5 w-5 text-green-600 dark:text-green-400" />
-                      </div>
-                      <p className="text-slate-500 dark:text-slate-400 text-sm font-medium">
-                        ยอดเติมเงิน ({getPeriodLabel()})
-                      </p>
-                    </div>
-                    <h3 className="text-4xl font-bold text-green-600 dark:text-green-400 mt-2">
-                      ฿{dashboardData.topupToday?.toLocaleString() ?? "0"}
-                    </h3>
-                  </div>
-
-                  {/* Card 2 */}
-                  <div className="bg-white dark:bg-slate-900 p-6 rounded-xl shadow-sm border border-slate-100 dark:border-slate-800 relative overflow-hidden">
-                    <div className="absolute top-0 right-0 p-4 opacity-10">
-                      <CreditCard className="w-24 h-24 text-red-600" />
-                    </div>
-                    <div className="flex items-center gap-3 mb-2">
-                      <div className="p-2 bg-red-100 dark:bg-red-900/30 rounded-lg">
-                        <CreditCard className="h-5 w-5 text-red-600 dark:text-red-400" />
-                      </div>
-                      <p className="text-slate-500 dark:text-slate-400 text-sm font-medium">
-                        ยอดชำระเงิน ({getPeriodLabel()})
-                      </p>
-                    </div>
-                    <h3 className="text-4xl font-bold text-red-600 dark:text-red-400 mt-2">
-                      ฿{dashboardData.paymentToday?.toLocaleString() ?? "0"}
-                    </h3>
-                  </div>
-
-                  {/* Card 3 */}
-                  <div className="bg-white dark:bg-slate-900 p-6 rounded-xl shadow-sm border border-slate-100 dark:border-slate-800 relative overflow-hidden">
-                    <div className="absolute top-0 right-0 p-4 opacity-10">
-                      <Users className="w-24 h-24 text-blue-600" />
-                    </div>
-                    <div className="flex items-center gap-3 mb-2">
-                      <div className="p-2 bg-blue-100 dark:bg-blue-900/30 rounded-lg">
-                        <Users className="h-5 w-5 text-blue-600 dark:text-blue-400" />
-                      </div>
-                      <p className="text-slate-500 dark:text-slate-400 text-sm font-medium">
-                        สมาชิกใหม่ ({getPeriodLabel()})
-                      </p>
-                    </div>
-                    <h3 className="text-4xl font-bold text-blue-600 dark:text-blue-400 mt-2">
-                      {dashboardData.newMembers ?? 0} คน
-                    </h3>
-                  </div>
+              <div className="h-full flex flex-col gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <DashboardCard
+                    icon={<Wallet />}
+                    label={`ยอดเติมเงิน (${getPeriodLabel()})`}
+                    value={dashboardData.topupToday}
+                    color="green"
+                  />
+                  <DashboardCard
+                    icon={<CreditCard />}
+                    label={`ยอดชำระเงิน (${getPeriodLabel()})`}
+                    value={dashboardData.paymentToday}
+                    color="red"
+                  />
+                  <DashboardCard
+                    icon={<Users />}
+                    label={`สมาชิกใหม่ (${getPeriodLabel()})`}
+                    value={dashboardData.newMembers}
+                    color="blue"
+                    unit="คน"
+                  />
                 </div>
-
-                <div className="bg-white dark:bg-slate-900 p-6 rounded-xl shadow-sm border border-slate-100 dark:border-slate-800 flex-1 min-h-[400px]">
-                  <h3 className="text-lg font-bold text-slate-800 dark:text-slate-200 mb-6">
+                <div className="bg-white dark:bg-slate-900 p-5 rounded-xl shadow-sm border border-slate-100 dark:border-slate-800 flex-1 min-h-[300px]">
+                  <h3 className="text-base font-bold text-slate-800 dark:text-slate-200 mb-4">
                     แนวโน้ม 7 วันย้อนหลัง
                   </h3>
                   <ResponsiveContainer width="100%" height="90%">
@@ -521,12 +513,12 @@ export function POSHeader() {
                       />
                       <XAxis
                         dataKey="name"
-                        tick={{ fill: "#64748b" }}
+                        tick={{ fill: "#64748b", fontSize: 10 }}
                         axisLine={false}
                         tickLine={false}
                       />
                       <YAxis
-                        tick={{ fill: "#64748b" }}
+                        tick={{ fill: "#64748b", fontSize: 10 }}
                         axisLine={false}
                         tickLine={false}
                       />
@@ -535,34 +527,32 @@ export function POSHeader() {
                           borderRadius: "8px",
                           border: "none",
                           boxShadow: "0 4px 6px -1px rgb(0 0 0 / 0.1)",
-                          backgroundColor: "var(--tooltip-bg, #fff)",
+                          fontSize: "12px",
                         }}
                       />
-                      <Legend />
+                      <Legend wrapperStyle={{ fontSize: "12px" }} />
                       <Line
                         type="monotone"
                         dataKey="topup"
                         name="ยอดเติมเงิน"
                         stroke="#16a34a"
-                        strokeWidth={3}
-                        dot={{ r: 4, fill: "#16a34a" }}
-                        activeDot={{ r: 6 }}
+                        strokeWidth={2}
+                        dot={{ r: 3, fill: "#16a34a" }}
                       />
                       <Line
                         type="monotone"
                         dataKey="payment"
                         name="ยอดชำระเงิน"
                         stroke="#dc2626"
-                        strokeWidth={3}
-                        dot={{ r: 4, fill: "#dc2626" }}
-                        activeDot={{ r: 6 }}
+                        strokeWidth={2}
+                        dot={{ r: 3, fill: "#dc2626" }}
                       />
                     </LineChart>
                   </ResponsiveContainer>
                 </div>
               </div>
             ) : (
-              <div className="flex items-center justify-center h-full text-slate-400">
+              <div className="flex items-center justify-center h-full text-slate-400 text-sm">
                 กำลังโหลดข้อมูล...
               </div>
             )}
@@ -573,45 +563,50 @@ export function POSHeader() {
       {/* --- SETTINGS POPUP --- */}
       <Dialog open={isSettingsOpen} onOpenChange={setIsSettingsOpen}>
         <DialogContent className="max-w-[800px] max-h-[90vh] flex flex-col p-0 bg-white dark:bg-slate-900 dark:border-slate-800">
-          <DialogHeader className="px-6 py-4 border-b dark:border-slate-800">
-            <DialogTitle className="flex items-center gap-2 text-xl text-slate-800 dark:text-white">
-              <Settings className="text-slate-600 dark:text-slate-300" />{" "}
+          <DialogHeader className="px-6 py-3 border-b dark:border-slate-800">
+            <DialogTitle className="flex items-center gap-2 text-lg text-slate-800 dark:text-white">
+              <Settings className="h-5 w-5 text-slate-600 dark:text-slate-300" />{" "}
               ตั้งค่าระบบ
             </DialogTitle>
           </DialogHeader>
 
-          <div className="flex-1 overflow-y-auto p-6">
+          <div className="flex-1 overflow-y-auto p-5">
             <Tabs defaultValue="general" className="w-full">
-              <TabsList className="grid w-full grid-cols-3 mb-6 bg-slate-100 dark:bg-slate-800">
-                <TabsTrigger value="general"> ข้อมูลร้านค้า</TabsTrigger>
-                <TabsTrigger value="promotions"> โปรโมชั่น</TabsTrigger>
-                <TabsTrigger value="tiers"> ระดับสมาชิก</TabsTrigger>
+              <TabsList className="grid w-full grid-cols-3 mb-5 bg-slate-100 dark:bg-slate-800 h-9">
+                <TabsTrigger value="general" className="text-xs">
+                  ข้อมูลร้านค้า
+                </TabsTrigger>
+                <TabsTrigger value="promotions" className="text-xs">
+                  โปรโมชั่น
+                </TabsTrigger>
+                <TabsTrigger value="tiers" className="text-xs">
+                  ระดับสมาชิก
+                </TabsTrigger>
               </TabsList>
 
-              {/* Tab 1: General */}
-              <TabsContent value="general" className="space-y-6">
-                <div className="grid gap-4 border dark:border-slate-700 p-4 rounded-lg bg-white dark:bg-slate-800">
-                  <h3 className="font-medium text-slate-800 dark:text-slate-200">
+              <TabsContent value="general" className="space-y-4">
+                <div className="grid gap-3 border dark:border-slate-700 p-3 rounded-lg bg-white dark:bg-slate-800">
+                  <h3 className="text-sm font-medium text-slate-800 dark:text-slate-200">
                     ข้อมูลพื้นฐาน
                   </h3>
-                  <div className="grid grid-cols-4 items-center gap-4">
-                    <Label className="text-right dark:text-slate-300">
+                  <div className="grid grid-cols-4 items-center gap-3">
+                    <Label className="text-right text-xs dark:text-slate-300">
                       ชื่อร้าน
                     </Label>
                     <Input
-                      className="col-span-3 dark:bg-slate-700 dark:border-slate-600"
+                      className="col-span-3 h-8 text-xs dark:bg-slate-700 dark:border-slate-600"
                       value={setting.name}
                       onChange={(e) =>
                         setSetting({ ...setting, name: e.target.value })
                       }
                     />
                   </div>
-                  <div className="grid grid-cols-4 items-center gap-4">
-                    <Label className="text-right dark:text-slate-300">
+                  <div className="grid grid-cols-4 items-center gap-3">
+                    <Label className="text-right text-xs dark:text-slate-300">
                       สาขา
                     </Label>
                     <Input
-                      className="col-span-3 dark:bg-slate-700 dark:border-slate-600"
+                      className="col-span-3 h-8 text-xs dark:bg-slate-700 dark:border-slate-600"
                       value={setting.branch}
                       onChange={(e) =>
                         setSetting({ ...setting, branch: e.target.value })
@@ -620,19 +615,17 @@ export function POSHeader() {
                   </div>
                 </div>
 
-                <div className="grid gap-4 border dark:border-slate-700 p-4 rounded-lg bg-white dark:bg-slate-800">
-                  <h3 className="font-medium text-slate-800 dark:text-slate-200">
+                <div className="grid gap-3 border dark:border-slate-700 p-3 rounded-lg bg-white dark:bg-slate-800">
+                  <h3 className="text-sm font-medium text-slate-800 dark:text-slate-200">
                     การทำงาน
                   </h3>
                   <div className="flex items-center justify-between">
                     <div>
-                      <Label className="text-base font-semibold dark:text-slate-200">
+                      <Label className="text-sm font-semibold dark:text-slate-200">
                         ระบบสะสมแต้ม
                       </Label>
-                      <p className="text-xs text-slate-500 dark:text-slate-400">
-                        {setting.isPointSystem
-                          ? "เปิดใช้งาน (ลูกค้าจะได้รับแต้มเมื่อเติมเงิน)"
-                          : "ปิดใช้งาน (ลูกค้าจะไม่ได้รับแต้ม)"}
+                      <p className="text-[10px] text-slate-500 dark:text-slate-400">
+                        {setting.isPointSystem ? "เปิดใช้งาน" : "ปิดใช้งาน"}
                       </p>
                     </div>
                     <label className="relative inline-flex items-center cursor-pointer">
@@ -647,82 +640,79 @@ export function POSHeader() {
                           })
                         }
                       />
-                      <div className="w-11 h-6 bg-gray-200 dark:bg-slate-600 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+                      <div className="w-9 h-5 bg-gray-200 dark:bg-slate-600 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-blue-600"></div>
                     </label>
                   </div>
                 </div>
               </TabsContent>
 
-              {/* Tab 2: Promotions */}
-              <TabsContent value="promotions" className="space-y-4">
-                <div className="flex justify-between items-center mb-2">
-                  <p className="text-sm text-slate-500 dark:text-slate-400">
-                    กำหนดส่วนลดที่จะแสดงในหน้าชำระเงิน
+              <TabsContent value="promotions" className="space-y-3">
+                <div className="flex justify-between items-center mb-1">
+                  <p className="text-xs text-slate-500 dark:text-slate-400">
+                    กำหนดส่วนลด
                   </p>
                   <Button
                     size="sm"
                     onClick={addPromo}
-                    className="gap-2 bg-green-600 hover:bg-green-700 text-white"
+                    className="h-7 text-xs gap-1.5 bg-green-600 hover:bg-green-700 text-white"
                   >
-                    <Plus className="h-4 w-4" /> เพิ่มโปรโมชั่น
+                    <Plus className="h-3 w-3" /> เพิ่มโปรโมชั่น
                   </Button>
                 </div>
-                <div className="space-y-2">
+                <div className="space-y-1.5">
                   {promotions.map((promo, idx) => (
                     <div
                       key={idx}
-                      className="flex gap-2 items-center p-3 border dark:border-slate-700 rounded-lg bg-slate-50 dark:bg-slate-800"
+                      className="flex gap-2 items-center p-2 border dark:border-slate-700 rounded-lg bg-slate-50 dark:bg-slate-800"
                     >
-                      <Tag className="h-5 w-5 text-orange-500" />
+                      <Tag className="h-4 w-4 text-orange-500" />
                       <Input
                         placeholder="ชื่อโปรโมชั่น"
-                        value={promo.name}
+                        value={promo.promo_name}
                         onChange={(e) =>
-                          updatePromo(idx, "name", e.target.value)
+                          updatePromo(idx, "promo_name", e.target.value)
                         }
-                        className="flex-1 dark:bg-slate-700 dark:border-slate-600"
+                        className="flex-1 h-8 text-xs"
                       />
-                      <div className="flex items-center gap-2">
-                        <span className="text-sm text-slate-500 dark:text-slate-400">
-                          ลด (บาท)
-                        </span>
-                        <Input
-                          type="number"
-                          className="w-24 font-bold text-red-500 dark:bg-slate-700 dark:border-slate-600"
-                          value={promo.value}
-                          onChange={(e) =>
-                            updatePromo(idx, "value", Number(e.target.value))
-                          }
-                        />
-                      </div>
+                      <Input
+                        type="number"
+                        className="w-20 h-8 font-bold text-red-500 text-xs text-right"
+                        value={promo.discount_value}
+                        onChange={(e) =>
+                          updatePromo(
+                            idx,
+                            "discount_value",
+                            Number(e.target.value)
+                          )
+                        }
+                      />
                       <Button
                         size="icon"
                         variant="ghost"
-                        className="text-red-500 hover:bg-red-50 dark:hover:bg-slate-700"
+                        className="h-8 w-8 text-red-500"
                         onClick={() => removePromo(idx)}
                       >
-                        <Trash2 className="h-4 w-4" />
+                        <Trash2 className="h-3.5 w-3.5" />
                       </Button>
                     </div>
                   ))}
                 </div>
               </TabsContent>
 
-              {/* Tab 3: Tiers */}
-              <TabsContent value="tiers" className="space-y-4">
-                <p className="text-sm text-slate-500 dark:text-slate-400 mb-2">
-                  กำหนดเกณฑ์ยอดสะสมเพื่อเลื่อนขั้นสมาชิก
+              <TabsContent value="tiers" className="space-y-3">
+                <p className="text-xs text-slate-500 dark:text-slate-400 mb-1">
+                  กำหนดเกณฑ์ยอดสะสม
                 </p>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                   {tiers.map((tier, idx) => (
                     <div
                       key={idx}
-                      className="border dark:border-slate-700 p-4 rounded-xl relative overflow-hidden bg-white dark:bg-slate-800"
-                      style={{ borderTop: `4px solid ${tier.color}` }}
+                      className="border dark:border-slate-700 p-3 rounded-xl bg-white dark:bg-slate-800"
+                      style={{ borderTop: `3px solid ${tier.color}` }}
                     >
-                      <div className="flex items-center gap-2 mb-4">
+                      <div className="flex items-center gap-1.5 mb-3">
                         <Crown
-                          className="h-5 w-5"
+                          className="h-4 w-4"
                           style={{ color: tier.color }}
                         />
                         <Input
@@ -730,16 +720,17 @@ export function POSHeader() {
                           onChange={(e) =>
                             updateTier(idx, "name", e.target.value)
                           }
-                          className="font-bold border-none h-8 px-0 text-lg bg-transparent dark:text-white"
+                          className="font-bold border-none h-6 px-0 text-sm bg-transparent"
                         />
                       </div>
-                      <div className="space-y-3">
+                      <div className="space-y-2">
                         <div>
-                          <Label className="text-xs text-slate-500 dark:text-slate-400">
+                          <Label className="text-[10px] text-slate-500">
                             ยอดสะสมขั้นต่ำ
                           </Label>
                           <Input
                             type="number"
+                            className="h-7 text-xs"
                             value={tier.minSpend}
                             onChange={(e) =>
                               updateTier(
@@ -748,16 +739,16 @@ export function POSHeader() {
                                 Number(e.target.value)
                               )
                             }
-                            className="dark:bg-slate-700 dark:border-slate-600"
                           />
                         </div>
                         <div>
-                          <Label className="text-xs text-slate-500 dark:text-slate-400">
+                          <Label className="text-[10px] text-slate-500">
                             ตัวคูณแต้ม
                           </Label>
                           <Input
                             type="number"
                             step="0.1"
+                            className="h-7 text-xs"
                             value={tier.multiplier}
                             onChange={(e) =>
                               updateTier(
@@ -766,16 +757,15 @@ export function POSHeader() {
                                 Number(e.target.value)
                               )
                             }
-                            className="dark:bg-slate-700 dark:border-slate-600"
                           />
                         </div>
                         <div>
-                          <Label className="text-xs text-slate-500 dark:text-slate-400">
+                          <Label className="text-[10px] text-slate-500">
                             สีธีม (Hex)
                           </Label>
-                          <div className="flex gap-2">
+                          <div className="flex gap-1.5">
                             <div
-                              className="w-8 h-8 rounded border shadow-sm"
+                              className="w-7 h-7 rounded border shadow-sm shrink-0"
                               style={{ backgroundColor: tier.color }}
                             ></div>
                             <Input
@@ -783,7 +773,7 @@ export function POSHeader() {
                               onChange={(e) =>
                                 updateTier(idx, "color", e.target.value)
                               }
-                              className="uppercase dark:bg-slate-700 dark:border-slate-600"
+                              className="uppercase h-7 text-xs"
                             />
                           </div>
                         </div>
@@ -795,24 +785,82 @@ export function POSHeader() {
             </Tabs>
           </div>
 
-          <DialogFooter className="p-4 border-t dark:border-slate-700 bg-slate-50 dark:bg-slate-800">
+          <DialogFooter className="p-3 border-t dark:border-slate-700 bg-slate-50 dark:bg-slate-800">
             <Button
               variant="outline"
+              size="sm"
               onClick={() => setIsSettingsOpen(false)}
-              className="dark:bg-slate-700 dark:text-white dark:border-slate-600"
             >
               ยกเลิก
             </Button>
             <Button
               onClick={saveSettings}
               disabled={isLoadingSettings}
-              className="bg-blue-600 hover:bg-blue-700 text-white gap-2"
+              size="sm"
+              className="bg-blue-600 hover:bg-blue-700 text-white gap-1.5"
             >
-              <Save className="h-4 w-4" /> บันทึกการตั้งค่า
+              {isLoadingSettings ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Save className="h-3.5 w-3.5" />
+              )}{" "}
+              บันทึก
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
     </>
+  );
+}
+
+interface DashboardCardProps {
+  icon: React.ReactNode;
+  label: string;
+  value: number;
+  color: "green" | "red" | "blue";
+  unit?: string;
+}
+
+function DashboardCard({
+  icon,
+  label,
+  value,
+  color,
+  unit = "",
+}: DashboardCardProps) {
+  const colorClasses = {
+    green:
+      "bg-green-100 text-green-600 dark:bg-green-900/30 dark:text-green-400",
+    red: "bg-red-100 text-red-600 dark:bg-red-900/30 dark:text-red-400",
+    blue: "bg-blue-100 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400",
+  };
+  const selectedColor = colorClasses[color].split(" ");
+  return (
+    <div className="bg-white dark:bg-slate-900 p-4 rounded-xl shadow-sm border border-slate-100 dark:border-slate-800 relative overflow-hidden">
+      <div className="flex items-center gap-2 mb-1.5">
+        <div
+          className={`p-1.5 rounded-lg ${selectedColor[0]} ${selectedColor[2]}`}
+        >
+          {React.isValidElement(icon)
+            ? React.cloneElement(
+                icon as React.ReactElement<{ className?: string }>,
+                {
+                  className: `h-4 w-4 ${selectedColor[1]} ${selectedColor[3]}`,
+                }
+              )
+            : icon}
+        </div>
+        <p className="text-slate-500 dark:text-slate-400 text-xs font-medium">
+          {label}
+        </p>
+      </div>
+      <h3
+        className={`text-2xl font-bold ${selectedColor[1]} ${selectedColor[3]}`}
+      >
+        {unit === "฿" || unit === ""
+          ? `฿${value.toLocaleString()}`
+          : `${value.toLocaleString()} ${unit}`}
+      </h3>
+    </div>
   );
 }

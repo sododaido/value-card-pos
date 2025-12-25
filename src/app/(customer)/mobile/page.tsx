@@ -1,117 +1,151 @@
-// ไฟล์: src/app/(customer)/mobile/page.tsx
 "use client";
 
-import { useState } from "react";
-import { Search, Smartphone } from "lucide-react";
-import { Input } from "@/components/ui/input";
-import { Button } from "@/components/ui/button";
+import React, { useState, useEffect, Suspense } from "react";
+import { useSearchParams, useRouter } from "next/navigation";
 import { DigitalMemberCard } from "@/components/pos/digital-member-card";
-import { Member } from "@/types/index";
+import { RecentActivity } from "@/components/pos/recent-activity";
+import { Member, Transaction } from "@/types/index";
+import { Loader2, AlertCircle, ChevronLeft } from "lucide-react";
+import { Button } from "@/components/ui/button";
 
-// ✅ แก้ไข: ใช้ "as unknown as Member" เพื่อแก้ปัญหา Type ไม่ตรง (Bypass แบบปลอดภัยกว่า any)
-const MOCK_MEMBER = {
-  id: "1",
-  name: "คุณลูกค้า ตัวอย่าง",
-  phone: "0812345678",
-  card_id: "MB-8888",
-  tier: "Gold",
-  points: 1250,
-  balance: 500.0,
-  // ใส่ Date เผื่อไว้
-  createdAt: new Date(),
-  updatedAt: new Date(),
-} as unknown as Member;
+function MemberProfileContent() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const cardId = searchParams.get("card_id"); // รับค่าจาก URL เช่น ?card_id=CF10001
 
-export default function MobilePage() {
-  const [phone, setPhone] = useState("");
   const [member, setMember] = useState<Member | null>(null);
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState("");
+  const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [tiers, setTiers] = useState([]); // ✅ เพิ่ม State สำหรับเก็บข้อมูลระดับสมาชิก
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-  const handleCheckMember = async (e: React.FormEvent) => {
-    e.preventDefault();
-
-    if (phone.length < 10) {
-      setError("กรุณากรอกเบอร์โทรให้ครบ 10 หลัก");
+  useEffect(() => {
+    // ✅ แก้ไข: หากเข้าหน้านี้โดยไม่มี card_id ให้เด้งกลับไปหน้าล็อกอินหลักทันที ไม่ต้องโหลดค้าง
+    if (!cardId || cardId.trim() === "") {
+      router.replace("/mobile");
       return;
     }
 
-    setIsLoading(true);
-    setError("");
-    setMember(null);
+    async function loadData() {
+      try {
+        // 1. ดึงข้อมูล Tiers เพื่อให้สีบัตรแสดงผลถูกต้องตามระดับสมาชิก
+        const settingsRes = await fetch("/api/settings");
+        if (settingsRes.ok) {
+          const settingsData = await settingsRes.json();
+          if (settingsData.tiers) setTiers(settingsData.tiers);
+        }
 
-    // จำลองการโหลดข้อมูล
-    setTimeout(() => {
-      if (phone === "0812345678") {
-        setMember(MOCK_MEMBER);
-      } else {
-        setError("ไม่พบข้อมูลสมาชิกในระบบ");
+        // 2. ดึงข้อมูลสมาชิกจาก API
+        const memberRes = await fetch(
+          `/api/members?search=${cardId}&t=${Date.now()}`
+        );
+        const memberData = await memberRes.json();
+
+        if (!memberRes.ok)
+          throw new Error(memberData.error || "ไม่พบข้อมูลสมาชิก");
+        setMember(memberData);
+
+        // 3. ดึงประวัติธุรกรรมล่าสุด
+        const txnRes = await fetch(
+          `/api/transactions?card_id=${cardId}&t=${Date.now()}`
+        );
+        if (txnRes.ok) {
+          const txnData = await txnRes.json();
+          setTransactions(txnData);
+        }
+      } catch (err) {
+        // ✅ แก้ไข Error: ระบุประเภท Error ให้ชัดเจนแทนการใช้ any เพื่อผ่าน Lint Check
+        const errorMessage =
+          err instanceof Error ? err.message : "เกิดข้อผิดพลาดในการโหลดข้อมูล";
+        setError(errorMessage);
+      } finally {
+        setIsLoading(false);
       }
-      setIsLoading(false);
-    }, 800);
-  };
+    }
 
-  return (
-    <div className="min-h-screen bg-slate-50 flex flex-col items-center pt-10 px-4 gap-6">
-      <div className="text-center space-y-2">
-        <div className="h-12 w-12 bg-blue-600 rounded-2xl flex items-center justify-center mx-auto shadow-lg shadow-blue-200">
-          <Smartphone className="text-white h-6 w-6" />
-        </div>
-        <h1 className="text-2xl font-bold text-slate-800">
-          ตรวจสอบสถานะสมาชิก
-        </h1>
-        <p className="text-slate-500 text-sm">
-          กรอกเบอร์โทรศัพท์เพื่อดูคะแนนและยอดเงิน
+    loadData();
+  }, [cardId, router]);
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center gap-3 bg-slate-50">
+        <Loader2 className="h-10 w-10 animate-spin text-blue-600" />
+        <p className="text-slate-500 animate-pulse font-medium">
+          กำลังโหลดข้อมูลบัตรของคุณ...
         </p>
       </div>
+    );
+  }
 
-      <form onSubmit={handleCheckMember} className="w-full max-w-sm flex gap-2">
-        <Input
-          type="tel"
-          placeholder="เบอร์โทรศัพท์ (เช่น 0812345678)"
-          value={phone}
-          onChange={(e) => setPhone(e.target.value)}
-          className="h-12 text-lg bg-white shadow-sm"
-          maxLength={10}
-          autoFocus
-        />
-        <Button
-          type="submit"
-          size="icon"
-          className="h-12 w-12 bg-blue-600 hover:bg-blue-700 shadow-sm shrink-0"
-          disabled={isLoading}
-        >
-          {isLoading ? (
-            <span className="animate-spin text-white">⟳</span>
-          ) : (
-            <Search className="h-5 w-5" />
-          )}
-        </Button>
-      </form>
-
-      {error && (
-        <div className="text-red-500 text-sm bg-red-50 px-4 py-2 rounded-full animate-pulse border border-red-100">
-          {error}
+  if (error) {
+    return (
+      <div className="min-h-screen p-6 flex flex-col items-center justify-center text-center gap-4 bg-slate-50">
+        <div className="bg-red-50 p-4 rounded-full">
+          <AlertCircle className="h-12 w-12 text-red-500" />
         </div>
-      )}
+        <h2 className="text-xl font-bold text-slate-800">ขออภัย</h2>
+        <p className="text-slate-500 max-w-xs">{error}</p>
+        <Button
+          onClick={() => router.push("/mobile")}
+          variant="outline"
+          className="mt-2 h-10 px-6 rounded-full"
+        >
+          กลับหน้าหลัก
+        </Button>
+      </div>
+    );
+  }
 
-      <div className="w-full max-w-sm mt-2 transition-all duration-500 ease-in-out">
-        {member ? (
-          <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
-            <DigitalMemberCard member={member} />
-            <p className="text-center text-xs text-slate-400 mt-4">
-              ข้อมูลจำลอง ณ วันที่ {new Date().toLocaleDateString("th-TH")}
-            </p>
-          </div>
-        ) : (
-          !isLoading &&
-          !error && (
-            <div className="h-48 border-2 border-dashed border-slate-200 rounded-2xl flex items-center justify-center text-slate-400 bg-white/50">
-              <p className="text-sm">ผลลัพธ์จะแสดงที่นี่</p>
+  return (
+    <div className="min-h-screen bg-slate-50 dark:bg-slate-950 flex flex-col max-w-md mx-auto shadow-2xl">
+      {/* ส่วนหัวหน้าจอสำหรับมือถือ */}
+      <div className="p-4 flex items-center gap-2 bg-white dark:bg-slate-900 border-b dark:border-slate-800 shrink-0">
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={() => router.push("/mobile")}
+          className="h-8 w-8"
+        >
+          <ChevronLeft className="h-5 w-5" />
+        </Button>
+        <h1 className="font-bold text-lg dark:text-white">บัตรสมาชิกของฉัน</h1>
+      </div>
+
+      <div className="flex-1 overflow-y-auto">
+        <div className="p-4 flex flex-col gap-6">
+          {/* ✅ บัตรสมาชิกดิจิทัล: ส่ง tiers เข้าไปด้วยเพื่อให้แสดงสีตามระดับ (Bronze/Silver/Gold) */}
+          <DigitalMemberCard member={member} tiers={tiers} />
+
+          {/* ✅ รายการธุรกรรมล่าสุด: ดึงจาก API จริงที่เชื่อมต่อ Google Sheets */}
+          <div className="space-y-3">
+            <div className="flex items-center justify-between px-1">
+              <h3 className="font-bold text-slate-800 dark:text-slate-200">
+                ประวัติการใช้งาน
+              </h3>
+              <span className="text-[10px] text-slate-400 uppercase tracking-widest">
+                Update Real-time
+              </span>
             </div>
-          )
-        )}
+            <RecentActivity transactions={transactions} isLoading={isLoading} />
+          </div>
+        </div>
+      </div>
+
+      {/* Footer สำหรับแบรนด์ */}
+      <div className="p-6 text-center shrink-0">
+        <p className="text-[10px] text-slate-400 uppercase font-semibold tracking-widest opacity-50">
+          Powered by ValueCard System
+        </p>
       </div>
     </div>
+  );
+}
+
+// ✅ หุ้มด้วย Suspense เพื่อรองรับการทำงานของ useSearchParams ใน Next.js 14+ ป้องกัน Build Error
+export default function MemberProfilePage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen bg-slate-50" />}>
+      <MemberProfileContent />
+    </Suspense>
   );
 }

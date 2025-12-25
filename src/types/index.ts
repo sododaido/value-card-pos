@@ -3,16 +3,19 @@
 export interface Member {
   member_id: string;
   card_id: string;
-
   name: string;
   phone: string;
   balance: number;
   points: number;
-  tier: "Bronze" | "Silver" | "Gold" | "Platinum";
+  // เพิ่ม | string เผื่อไว้กรณีข้อมูลจาก API ไม่ตรงเป๊ะ หรือ Mock data เป็น string ธรรมดา
+  tier: "Bronze" | "Silver" | "Gold" | "Platinum" | string;
   total_spent: number;
   joined_date: string;
   updated_at: string;
-  row_number?: number; // ใช้สำหรับอ้างอิงแถวใน Google Sheet เพื่อการแก้ไข
+  row_number?: number;
+
+  // ✅ เพิ่มฟิลด์นี้เข้าไป เพื่อแก้ Error ในไฟล์ page.tsx
+  isActive?: boolean | string;
 }
 
 export interface Transaction {

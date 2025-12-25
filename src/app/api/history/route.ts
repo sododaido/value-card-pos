@@ -2,8 +2,9 @@
 import { NextResponse } from "next/server";
 import { getMemberTransactions } from "@/lib/google-sheets";
 
-// บังคับให้โหลดข้อมูลใหม่ทุกครั้ง ไม่ให้จำค่าเก่า (แก้ปัญหาข้อมูลไม่อัปเดต)
+// บังคับปิด Cache
 export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
@@ -14,7 +15,9 @@ export async function GET(request: Request) {
   }
 
   try {
+    // ฟังก์ชันนี้เราแก้ใน lib/google-sheets.ts แล้ว ให้กรองด้วย Card ID โดยตรง
     const history = await getMemberTransactions(cardId);
+
     return NextResponse.json(history);
   } catch (error) {
     console.error("Error fetching history:", error);

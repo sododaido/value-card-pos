@@ -1,53 +1,114 @@
+// ไฟล์: src/app/api/settings/route.ts
 import { NextResponse } from "next/server";
+import {
+  getDoc, // ✅ นำเข้าเพิ่ม
+  getAppSettings,
+  getActivePromotions,
+  updateAppSettings,
+  updatePromotions,
+  getTiers,
+  updateTiers,
+} from "@/lib/google-sheets";
+
+interface PromoInput {
+  name: string;
+  value: number;
+}
+
+// ✅ เพิ่ม Interface เพื่อแก้ Error Unexpected any ในบรรทัดที่ 74, 75
+interface TierInput {
+  id: string;
+  name: string;
+  minSpend: number;
+  multiplier: number;
+  color: string;
+}
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
 export async function GET() {
   try {
-    // ส่งค่า Default กลับไป เพื่อให้ POS ทำงานได้
-    // (ระบบ Point และ Tier จะยังคำนวณตาม Logic ใน Code)
+    // ✅ หัวใจหลัก: โหลด Google Sheet เพียงครั้งเดียวต่อหนึ่งหน้าจอ
+    const doc = await getDoc();
+    await doc.loadInfo();
+
+    const [settings, promotions, tiers] = await Promise.all([
+      getAppSettings(),
+      getActivePromotions(),
+      getTiers(),
+    ]);
+
     return NextResponse.json({
-      setting: { name: "POS System", isPointSystem: true },
-      promotions: [], // ยังไม่มีโปรโมชั่น
-      tiers: [
-        {
-          id: "1",
-          name: "Bronze",
-          minSpend: 0,
-          multiplier: 1,
-          color: "#cd7f32",
-        },
-        {
-          id: "2",
-          name: "Silver",
-          minSpend: 5000,
-          multiplier: 1.2,
-          color: "#c0c0c0",
-        },
-        {
-          id: "3",
-          name: "Gold",
-          minSpend: 10000,
-          multiplier: 1.5,
-          color: "#ffd700",
-        },
-      ],
+      setting: {
+        name: settings.shop_name,
+        branch: settings.shop_branch,
+        isPointSystem: settings.enable_points,
+      },
+      promotions: promotions.map((p) => ({
+        promo_id: p.promo_id,
+        promo_name: p.promo_name,
+        discount_value: p.discount_value,
+        discount_type: p.discount_type,
+        is_active: p.is_active,
+      })),
+      tiers: tiers,
     });
   } catch (error) {
-    return NextResponse.json(
-      { error: "Failed to fetch settings" },
-      { status: 500 }
-    );
+    console.error("Settings API Error:", error);
+    return NextResponse.json({
+      setting: {
+        name: "POS System",
+        branch: "Staff Panel",
+        isPointSystem: true,
+      },
+      promotions: [],
+      tiers: [],
+    });
   }
 }
 
 export async function POST(req: Request) {
   try {
-    // เนื่องจากไม่มี DB แล้ว ฟังก์ชันนี้จะแค่ตอบว่า Success (แต่ไม่ได้บันทึกจริง)
-    // เพื่อให้หน้า UI ไม่ Error เวลาพนักงานกดบันทึก
+    const body = await req.json();
+    const { setting, promotions, tiers } = body;
+
+    const doc = await getDoc();
+    await doc.loadInfo(); // ✅ โหลดครั้งเดียว
+
+    if (setting) {
+      await updateAppSettings({
+        shop_name: setting.name,
+        shop_branch: setting.branch,
+        enable_points: setting.isPointSystem,
+      });
+    }
+
+    if (promotions && Array.isArray(promotions)) {
+      const formattedPromos = promotions.map((p: PromoInput) => ({
+        name: p.name || (p as unknown as { promo_name: string }).promo_name,
+        value: Number(
+          p.value || (p as unknown as { discount_value: number }).discount_value
+        ),
+      }));
+
+      await updatePromotions(formattedPromos);
+    }
+
+    if (tiers && Array.isArray(tiers)) {
+      const formattedTiers = tiers.map((t: TierInput) => ({
+        id: String(t.id),
+        name: t.name,
+        minSpend: Number(t.minSpend),
+        multiplier: Number(t.multiplier),
+        color: t.color,
+      }));
+      await updateTiers(formattedTiers);
+    }
+
     return NextResponse.json({ success: true });
   } catch (error) {
+    console.error("Failed to save settings:", error);
     return NextResponse.json(
       { error: "Failed to save settings" },
       { status: 500 }
