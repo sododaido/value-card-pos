@@ -141,7 +141,6 @@ function MemberProfileContent() {
   );
 }
 
-// ✅ หุ้มด้วย Suspense เพื่อรองรับการทำงานของ useSearchParams ใน Next.js 14+ ป้องกัน Build Error
 export default function MemberProfilePage() {
   return (
     <Suspense fallback={<div className="min-h-screen bg-slate-50" />}>

@@ -1,7 +1,6 @@
-// ไฟล์: src/app/me/page.tsx
 "use client";
 
-import { useEffect, useState, Suspense } from "react"; // ✅ เพิ่ม Suspense
+import { useEffect, useState, Suspense } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { Member, Transaction } from "@/types/index";
 import { DigitalMemberCard } from "@/components/pos/digital-member-card";
@@ -17,29 +16,35 @@ import {
 import { formatCurrency, formatDate } from "@/lib/utils";
 import Barcode from "react-barcode";
 
-// ------------------------------------------
-// 1. แยก Content ออกมาเป็น Component ย่อย
-// ------------------------------------------
 function CustomerContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
-  const cardId = searchParams.get("id");
+  // ✅ แก้ไข: รองรับทั้ง ?id= และ ?card_id= เพื่อความยืดหยุ่น
+  const cardId = searchParams.get("id") || searchParams.get("card_id");
 
   const [member, setMember] = useState<Member | null>(null);
   const [history, setHistory] = useState<Transaction[]>([]);
+  const [tiers, setTiers] = useState([]); // ✅ เพิ่ม State สำหรับเก็บข้อมูลระดับสมาชิก
   const [loading, setLoading] = useState(true);
 
   const fetchData = async () => {
     if (!cardId) return;
     setLoading(true);
     try {
-      // 1. ดึงข้อมูลสมาชิก
+      // 1. ดึงข้อมูล Tiers (เพื่อให้ DigitalMemberCard แสดงสีได้ถูกต้อง)
+      const settingsRes = await fetch("/api/settings");
+      if (settingsRes.ok) {
+        const settingsData = await settingsRes.json();
+        if (settingsData.tiers) setTiers(settingsData.tiers);
+      }
+
+      // 2. ดึงข้อมูลสมาชิก
       const resMember = await fetch(`/api/members?search=${cardId}`);
       if (!resMember.ok) throw new Error("Failed to load member");
       const dataMember = await resMember.json();
       setMember(dataMember);
 
-      // 2. ดึงประวัติการใช้งาน
+      // 3. ดึงประวัติการใช้งาน
       const resHistory = await fetch(
         `/api/history?card_id=${dataMember.card_id}`
       );
@@ -93,9 +98,9 @@ function CustomerContent() {
       </div>
 
       <div className="px-4 -mt-20 relative z-20 space-y-6">
-        {/* 2. Member Card */}
+        {/* 2. Member Card (ส่ง tiers เข้าไปด้วยเพื่อให้แสดงสีตามระดับ) */}
         <div className="transform transition-all active:scale-95 duration-200">
-          <DigitalMemberCard member={member} />
+          <DigitalMemberCard member={member} tiers={tiers} />
         </div>
 
         {/* 3. Barcode */}
@@ -195,9 +200,6 @@ function CustomerContent() {
   );
 }
 
-// ------------------------------------------
-// 2. Main Page Component (ใช้ Suspense ห่อ)
-// ------------------------------------------
 export default function CustomerDashboard() {
   return (
     <Suspense
