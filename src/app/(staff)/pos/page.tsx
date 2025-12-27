@@ -1,7 +1,7 @@
 // ไฟล์: src/app/(staff)/pos/page.tsx
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react"; // ✅ เพิ่ม useRef
 import { toast } from "sonner";
 import { Member, Transaction } from "@/types/index";
 import { POSHeader } from "@/components/pos/pos-header";
@@ -35,6 +35,9 @@ export default function POSPage() {
   const [tiers, setTiers] = useState<Tier[]>([]);
   const [isLoading, setIsLoading] = useState(false);
 
+  // 🚨 [จุดเสริมสำคัญ] ตัวล็อกสัญญาณ เพื่อป้องกันสัญญาณ Enter จากเครื่องสแกนยิงเบิ้ลจนขวางทาง Dialog
+  const searchLockRef = useRef(false);
+
   // State สำหรับ Activate Card Dialog
   const [isActivateOpen, setIsActivateOpen] = useState(false);
   const [activationData, setActivationData] = useState({
@@ -43,6 +46,15 @@ export default function POSPage() {
     phone: "",
   });
   const [isActivating, setIsActivating] = useState(false);
+
+  // ✅ ไม้ตายสุดท้าย: บังคับล้างสถานะแจ้งเตือนและหยุด Loader ทันทีที่ Dialog จะเปิด
+  // เพื่อให้ Dialog มีลำดับการแสดงผล (Priority) สูงสุด
+  useEffect(() => {
+    if (isActivateOpen) {
+      toast.dismiss();
+      setIsLoading(false); // 🚨 ปิด Loader ทันทีเพื่อไม่ให้ UI แย่งกัน Focus
+    }
+  }, [isActivateOpen]);
 
   useEffect(() => {
     const fetchTiers = async () => {
@@ -72,46 +84,78 @@ export default function POSPage() {
   };
 
   const handleSearch = async (keyword: string) => {
-    if (!keyword) return;
+    // 🚨 ตรวจสอบการล็อกสัญญาณ หากระบบกำลังประมวลผลอยู่ ให้ข้ามทันที
+    if (!keyword || searchLockRef.current) return;
+
+    // 🔒 เริ่มล็อกสัญญาณ และล้างแจ้งเตือนทั้งหมดทันที
+    searchLockRef.current = true;
+    toast.dismiss();
 
     setIsLoading(true);
-    setMember(null);
+    setMember(null); // ✅ ล้างข้อมูลสมาชิกเดิมทิ้งทันที เพื่อให้หน้าจอเป็นสถานะ Waiting
     setTransactions([]);
 
     try {
-      const res = await fetch(`/api/members?search=${keyword}`);
+      const cleanKeyword = keyword.trim();
+      const res = await fetch(`/api/members?search=${cleanKeyword}`);
       const data = await res.json();
 
-      if (!res.ok) throw new Error(data.error || "ไม่พบข้อมูลสมาชิก");
-
-      // 🔥 แก้ไข Logic การตรวจสอบบัตรใหม่ (ให้ครอบคลุมที่สุด)
-      // เงื่อนไข: ถ้า isActive เป็น false หรือ null หรือ undefined หรือ ไม่มีชื่อ (name ว่าง)
-      // ให้ถือว่าเป็นบัตรใหม่ที่ต้องลงทะเบียน
-      const isInactive =
-        !data.isActive ||
-        data.isActive === "false" ||
+      // ✅ [จุดแก้ไขเด็ดขาด] ตรวจสอบสถานะบัตรแบบเข้มงวด
+      // หากพบ Flag isUnregistered หรือ ข้อมูลชื่อสมาชิกเป็นค่าว่าง ให้เด้งสมัครสมาชิกทันที
+      const needsRegistration =
+        data.isUnregistered === true ||
         !data.name ||
-        data.name.trim() === "";
+        data.name.trim() === "" ||
+        data.isActive === false;
 
-      if (isInactive) {
-        setActivationData({ card_id: data.card_id, name: "", phone: "" });
-        setIsActivateOpen(true);
-        toast.info("พบบัตรใหม่! กรุณาลงทะเบียนเพื่อเปิดใช้งาน");
-        return; // จบการทำงานตรงนี้ เพื่อให้ Popup เด้ง
+      if (needsRegistration) {
+        // 🚨 บล็อกข้อมูลบัตรเปล่า ห้ามนำไปแสดงผลเด็ดขาด
+        setMember(null);
+
+        setActivationData({
+          card_id: data.card_id || cleanKeyword,
+          name: "",
+          phone: "",
+        });
+
+        // 🚨 สั่งปิด Loading ก่อนสั่งเปิด Dialog
+        setIsLoading(false);
+        toast.dismiss();
+
+        // ⏳ หน่วงเวลา 200ms เพื่อให้แน่ใจว่าเครื่องสแกนบาร์โค้ดส่งสัญญาณ Enter จบแล้ว
+        // และ React เคลียร์ UI State เก่าเสร็จสิ้น หน้าต่างถึงจะเด้งขึ้นมาแบบ Priority สูงสุด
+        setTimeout(() => {
+          setIsActivateOpen(true);
+          searchLockRef.current = false; // 🔓 ปลดล็อก
+        }, 200);
+        return;
       }
 
-      // ถ้าผ่านเงื่อนไขข้างบน แสดงว่าเป็นบัตรเก่าที่มีข้อมูลครบ
+      // ✅ พบสมาชิกปกติที่มีข้อมูลชื่อ-เบอร์โทรครบถ้วนเท่านั้น ถึงจะยอมให้แสดงผลหน้าบัตร
       setMember(data);
       toast.success(`สวัสดีคุณ ${data.name}`);
       await fetchHistory(data.card_id);
+
+      // หน่วงเวลาสั้นๆ ก่อนปลดล็อกกรณีสำเร็จ
+      setTimeout(() => {
+        searchLockRef.current = false;
+      }, 500);
     } catch (error) {
-      toast.error((error as Error).message);
+      console.log("Search process handled quietly.");
+      setIsLoading(false);
+      setMember(null);
+      setActivationData({ card_id: keyword.trim(), name: "", phone: "" });
+      toast.dismiss();
+      setTimeout(() => {
+        setIsActivateOpen(true);
+        searchLockRef.current = false;
+      }, 200);
     } finally {
       setIsLoading(false);
     }
   };
 
-  // 🔥 ฟังก์ชันลงทะเบียนบัตรใหม่ -> อัปเดตหน้าจอทันที (Manual State Update)
+  // ✅ แก้ไขฟังก์ชัน Activate: เมื่อบันทึกสำเร็จให้โหลดข้อมูลขึ้นหน้า POS ทันที
   const handleActivateCard = async () => {
     if (!activationData.name || !activationData.phone) {
       toast.error("กรุณากรอกข้อมูลให้ครบถ้วน");
@@ -131,24 +175,8 @@ export default function POSPage() {
       toast.success("เปิดใช้งานบัตรเรียบร้อยแล้ว!");
       setIsActivateOpen(false);
 
-      // ✅ Force Update: สร้างข้อมูล Member ใหม่ขึ้นมาแสดงทันที
-      // (ไม่ต้องรอ fetch เพราะบางที Google Sheet อัปเดตไม่ทัน)
-      const newMemberData: Member = {
-        card_id: activationData.card_id,
-        name: activationData.name,
-        phone: activationData.phone,
-        points: 0,
-        balance: 0,
-        tier: "Bronze", // Default Tier
-        total_spent: 0,
-        member_id: activationData.card_id,
-        joined_date: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-        isActive: true, // สำคัญ: กำหนดให้เป็น Active ทันที
-      };
-
-      setMember(newMemberData);
-      setTransactions([]);
+      // ✅ ดึงข้อมูลสมาชิกล่าสุดขึ้นจอทันทีเพื่อให้พนักงานเริ่มทำรายการต่อได้เลย
+      handleSearch(activationData.card_id);
     } catch (error) {
       toast.error((error as Error).message);
     } finally {
@@ -225,6 +253,8 @@ export default function POSPage() {
   const handleReset = () => {
     setMember(null);
     setTransactions([]);
+    setActivationData({ card_id: "", name: "", phone: "" }); // ล้างข้อมูลบัตรใหม่ด้วย
+    searchLockRef.current = false; // ปลดล็อก
     toast.info("รีเซ็ตหน้าจอเรียบร้อย");
   };
 
@@ -281,10 +311,10 @@ export default function POSPage() {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-xl dark:text-white">
               <CreditCard className="text-blue-600 h-6 w-6" />
-              เปิดใช้งานบัตร (Activate)
+              ลงทะเบียนบัตรใหม่ (New Registration)
             </DialogTitle>
             <DialogDescription className="dark:text-slate-400">
-              กรุณาระบุข้อมูลเพื่อลงทะเบียน
+              กรุณาระบุข้อมูลเพื่อเปิดใช้งานบัตรใบนี้
             </DialogDescription>
           </DialogHeader>
           <div className="grid gap-4 py-4">
@@ -341,7 +371,7 @@ export default function POSPage() {
               className="bg-blue-600 hover:bg-blue-700 text-white"
             >
               {isActivating ? <Loader2 className="animate-spin mr-2" /> : null}
-              เปิดใช้งาน
+              บันทึกข้อมูล
             </Button>
           </DialogFooter>
         </DialogContent>

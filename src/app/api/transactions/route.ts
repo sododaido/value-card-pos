@@ -8,6 +8,8 @@ import {
   autoUpdateMemberTier,
   getMemberTransactions,
 } from "@/lib/google-sheets";
+// ✅ นำเข้าฟังก์ชัน Telegram
+import { sendTelegramNotify, formatNotifyMessage } from "@/lib/telegram";
 
 export const dynamic = "force-dynamic";
 
@@ -34,14 +36,18 @@ export async function GET(request: Request) {
 export async function POST(req: Request) {
   try {
     const { card_id, type, amount, note } = await req.json();
-    const member = await getMemberByCardId(card_id);
+
+    // ✅ Optimization 1: ดึงข้อมูลสมาชิก, Settings และ Tiers พร้อมกัน (Parallel)
+    const [member, settings, tiers] = await Promise.all([
+      getMemberByCardId(card_id),
+      getAppSettings(),
+      getTiers(),
+    ]);
+
     if (!member)
       return NextResponse.json({ error: "ไม่พบสมาชิก" }, { status: 404 });
 
-    const settings = await getAppSettings();
-    const tiers = await getTiers();
     const currentTier = tiers.find((t) => t.name === member.tier) || tiers[0];
-
     const currentBalance = member.balance;
     let newBalance = currentBalance;
     let pointsEarned = 0;
@@ -58,26 +64,52 @@ export async function POST(req: Request) {
 
     const newTotalSpent =
       member.total_spent + (type === "PAYMENT" ? amount : 0);
+
+    // ✅ Optimization 2: อัปเดตข้อมูลหลักของสมาชิกก่อนเพื่อให้ข้อมูลถูกต้อง
     await updateMember(card_id, {
       balance: newBalance,
       points: member.points + pointsEarned,
       total_spent: newTotalSpent,
     });
-    await autoUpdateMemberTier(card_id, newTotalSpent);
 
-    const txn = await createTransaction({
-      card_id: member.card_id,
-      type,
-      amount,
-      balance_before: currentBalance,
-      balance_after: newBalance,
-      points_earned: pointsEarned,
-      note,
-      staff_name: "Staff",
-    });
+    // ✅ Optimization 3: ปรับปรุงการจัดการงานเบื้องหลังและการส่ง Telegram ให้เสถียรขึ้น
+    const runSecondaryTasks = async () => {
+      try {
+        // บันทึกรายการและอัปเดตระดับสมาชิก
+        await Promise.all([
+          autoUpdateMemberTier(card_id, newTotalSpent),
+          createTransaction({
+            card_id: member.card_id,
+            type,
+            amount,
+            balance_before: currentBalance,
+            balance_after: newBalance,
+            points_earned: pointsEarned,
+            note,
+            staff_name: "Staff",
+          }),
+        ]);
 
-    return NextResponse.json({ success: true, data: txn });
+        // ✅ ส่งแจ้งเตือน Telegram (จัดการภายใน Secondary Tasks เพื่อไม่ให้หน่วงหน้าบ้าน)
+        const telegramMsg = formatNotifyMessage(type, {
+          name: member.name,
+          card_id: member.card_id,
+          amount: amount,
+          balance_after: newBalance,
+          points_earned: pointsEarned,
+        });
+        await sendTelegramNotify(telegramMsg);
+      } catch (err) {
+        console.error("Secondary Tasks Error:", err);
+      }
+    };
+
+    // เรียกทำงานแบบไม่รอ (Async)
+    runSecondaryTasks();
+
+    return NextResponse.json({ success: true, balance: newBalance });
   } catch (error) {
+    console.error("API POST Error:", error);
     return NextResponse.json(
       { error: "Internal Server Error" },
       { status: 500 }

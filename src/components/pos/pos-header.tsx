@@ -1,4 +1,3 @@
-// ไฟล์: src/components/pos/pos-header.tsx
 "use client";
 
 import React, { useState, useEffect, useCallback } from "react";
@@ -6,7 +5,6 @@ import { useTheme } from "next-themes";
 import {
   Store,
   UserPlus,
-  LayoutDashboard,
   Settings,
   BarChart3,
   Save,
@@ -21,6 +19,12 @@ import {
   Moon,
   Sun,
   Loader2,
+  TrendingUp,
+  History,
+  PieChart,
+  // ✅ เพิ่มไอคอน Gauge ตามรูปภาพที่เเนบมา
+  Gauge,
+  BarChartHorizontal,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -316,12 +320,11 @@ export function POSHeader({ onMemberRegistered }: POSHeaderProps) {
 
   return (
     <>
-      {/* ✅ ลดความสูง Header จาก h-16 เป็น h-14 เพื่อเพิ่มพื้นที่แนวตั้ง */}
       <header className="h-14 border-b bg-white dark:bg-slate-900 dark:border-slate-800 px-4 flex items-center justify-between sticky top-0 z-10 shadow-sm transition-colors duration-300">
         <div className="flex items-center gap-2">
-          {/* ✅ ปรับขนาด Padding และ Icon ให้เล็กลงเล็กน้อย */}
+          {/* ✅ ไอคอนระบบรูป CreditCard */}
           <div className="bg-blue-600 p-1.5 rounded-lg shadow-blue-900/20 shadow-lg">
-            <Store className="h-4 w-4 text-white" />
+            <CreditCard className="h-4 w-4 text-white" />
           </div>
           <div>
             <h1 className="font-bold text-base leading-none text-slate-800 dark:text-slate-100">
@@ -334,27 +337,37 @@ export function POSHeader({ onMemberRegistered }: POSHeaderProps) {
         </div>
 
         <div className="flex items-center gap-1.5 md:gap-2">
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
-            className="h-8 w-8 text-slate-600 hover:text-blue-600 dark:text-slate-400 dark:hover:text-blue-400"
-          >
-            {theme === "dark" ? (
-              <Moon className="h-4 w-4" />
-            ) : (
-              <Sun className="h-4 w-4" />
-            )}
-          </Button>
+          {/* ✅ สวิตช์สลับโหมด Sun/Moon */}
+          <div className="flex items-center gap-2 mr-1">
+            <Sun
+              className={`h-3.5 w-3.5 ${
+                theme === "dark" ? "text-slate-500" : "text-amber-500"
+              }`}
+            />
+            <label className="relative inline-flex items-center cursor-pointer scale-90">
+              <input
+                type="checkbox"
+                className="sr-only peer"
+                checked={theme === "dark"}
+                onChange={() => setTheme(theme === "dark" ? "light" : "dark")}
+              />
+              <div className="w-9 h-5 bg-slate-200 dark:bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-blue-600"></div>
+            </label>
+            <Moon
+              className={`h-3.5 w-3.5 ${
+                theme === "dark" ? "text-blue-400" : "text-slate-500"
+              }`}
+            />
+          </div>
 
-          {/* ✅ ปรับขนาดปุ่มเมนูให้กะทัดรัดขึ้น */}
           <Button
             variant="ghost"
             size="sm"
             onClick={() => setIsDashboardOpen(true)}
-            className="h-8 text-xs text-slate-600 hover:text-blue-600 dark:text-slate-300 hidden sm:flex"
+            // ✅ เปลี่ยนไอคอนแดชบอร์ดให้เป็นรูป Gauge ตามความต้องการ
+            className="h-8 text-xs font-bold uppercase tracking-wider text-slate-600 hover:text-blue-600 dark:text-slate-300 hidden sm:flex gap-2"
           >
-            <LayoutDashboard className="h-3.5 w-3.5 mr-1.5" /> แดชบอร์ด
+            <Gauge className="h-4 w-4" /> Dashboard
           </Button>
 
           <Button
@@ -370,7 +383,6 @@ export function POSHeader({ onMemberRegistered }: POSHeaderProps) {
 
           <Dialog open={isRegisterOpen} onOpenChange={setIsRegisterOpen}>
             <DialogTrigger asChild>
-              {/* ✅ ปรับขนาดปุ่ม New Member ให้เล็กลง */}
               <Button
                 size="sm"
                 className="h-8 text-xs gap-1.5 bg-blue-600 hover:bg-blue-700 text-white shadow-md"
@@ -432,11 +444,12 @@ export function POSHeader({ onMemberRegistered }: POSHeaderProps) {
 
       {/* --- DASHBOARD POPUP --- */}
       <Dialog open={isDashboardOpen} onOpenChange={setIsDashboardOpen}>
-        <DialogContent className="!max-w-[98vw] !w-[98vw] !h-[95vh] flex flex-col p-0 overflow-hidden bg-white dark:bg-slate-950 dark:border-slate-800">
-          <DialogHeader className="px-6 py-3 border-b bg-slate-50 dark:bg-slate-900 dark:border-slate-800 flex flex-row items-center justify-between">
-            <DialogTitle className="flex items-center gap-2 text-xl text-slate-800 dark:text-white">
-              <BarChart3 className="text-blue-600 h-5 w-5" /> แดชบอร์ดภาพรวม (
-              {getPeriodLabel()})
+        <DialogContent className="!max-w-[98vw] !w-[98vw] !h-[95vh] flex flex-col p-0 overflow-hidden bg-white dark:bg-slate-950 dark:border-slate-800 rounded-[2rem]">
+          <DialogHeader className="px-6 py-4 border-b bg-white dark:bg-slate-900 dark:border-slate-800 flex flex-row items-center justify-between">
+            <DialogTitle className="flex items-center gap-2 text-xl text-slate-800 dark:text-white font-black uppercase tracking-tight">
+              {/* ✅ เปลี่ยนไอคอนแดชบอร์ดหลักเป็น BarChartHorizontal เพื่อความมืออาชีพ */}
+              <BarChartHorizontal className="text-blue-600 h-6 w-6" /> Analytics
+              Dashboard
             </DialogTitle>
             <div className="flex gap-2">
               <div className="flex bg-white dark:bg-slate-800 rounded-lg border dark:border-slate-700 p-0.5 shadow-sm">
@@ -444,33 +457,33 @@ export function POSHeader({ onMemberRegistered }: POSHeaderProps) {
                   <button
                     key={p}
                     onClick={() => setPeriod(p)}
-                    className={`px-2.5 py-1 text-xs rounded-md transition-all ${
+                    className={`px-4 py-1.5 text-[10px] font-black uppercase tracking-widest rounded-md transition-all ${
                       period === p
-                        ? "bg-blue-100 text-blue-700 font-bold dark:bg-blue-900 dark:text-blue-200"
+                        ? "bg-slate-900 text-white dark:bg-blue-600"
                         : "text-slate-600 hover:bg-slate-50 dark:text-slate-400 dark:hover:bg-slate-700"
                     }`}
                   >
                     {p === "today"
-                      ? "วันนี้"
+                      ? "Today"
                       : p === "week"
-                      ? "สัปดาห์นี้"
-                      : "เดือนนี้"}
+                      ? "Weekly"
+                      : "Monthly"}
                   </button>
                 ))}
               </div>
               <Button
                 size="sm"
                 variant="outline"
-                className="h-7 text-xs"
+                className="h-9 text-[10px] font-black uppercase tracking-widest border-slate-200 dark:border-slate-700 rounded-xl"
                 onClick={fetchDashboard}
                 disabled={isLoadingDash}
               >
                 <RefreshCcw
-                  className={`h-3 w-3 mr-1.5 ${
+                  className={`h-3 w-3 mr-2 ${
                     isLoadingDash ? "animate-spin" : ""
                   }`}
                 />
-                อัปเดต
+                Sync
               </Button>
             </div>
           </DialogHeader>
@@ -480,29 +493,45 @@ export function POSHeader({ onMemberRegistered }: POSHeaderProps) {
               <div className="h-full flex flex-col gap-4">
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                   <DashboardCard
-                    icon={<Wallet />}
-                    label={`ยอดเติมเงิน (${getPeriodLabel()})`}
+                    icon={<PieChart />}
+                    label={`Gross Topup (${getPeriodLabel()})`}
                     value={dashboardData.topupToday}
                     color="green"
                   />
                   <DashboardCard
-                    icon={<CreditCard />}
-                    label={`ยอดชำระเงิน (${getPeriodLabel()})`}
+                    icon={<History />}
+                    label={`Gross Payment (${getPeriodLabel()})`}
                     value={dashboardData.paymentToday}
                     color="red"
                   />
                   <DashboardCard
                     icon={<Users />}
-                    label={`สมาชิกใหม่ (${getPeriodLabel()})`}
+                    label={`Member Growth (${getPeriodLabel()})`}
                     value={dashboardData.newMembers}
                     color="blue"
                     unit="คน"
                   />
                 </div>
-                <div className="bg-white dark:bg-slate-900 p-5 rounded-xl shadow-sm border border-slate-100 dark:border-slate-800 flex-1 min-h-[300px]">
-                  <h3 className="text-base font-bold text-slate-800 dark:text-slate-200 mb-4">
-                    แนวโน้ม 7 วันย้อนหลัง
-                  </h3>
+                <div className="bg-white dark:bg-slate-900 p-8 rounded-[2.5rem] shadow-xl shadow-slate-200/50 dark:shadow-none border border-slate-100 dark:border-slate-800 flex-1 min-h-[350px]">
+                  <div className="flex justify-between items-center mb-8">
+                    <h3 className="text-xs font-black text-slate-400 dark:text-slate-500 uppercase tracking-[0.3em]">
+                      Performance Metrics Overview
+                    </h3>
+                    <div className="flex items-center gap-4">
+                      <div className="flex items-center gap-2">
+                        <div className="w-2 h-2 rounded-full bg-emerald-500"></div>
+                        <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">
+                          Inflow
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <div className="w-2 h-2 rounded-full bg-rose-500"></div>
+                        <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">
+                          Outflow
+                        </span>
+                      </div>
+                    </div>
+                  </div>
                   <ResponsiveContainer width="100%" height="90%">
                     <LineChart data={dashboardData.chartData}>
                       <CartesianGrid
@@ -513,47 +542,80 @@ export function POSHeader({ onMemberRegistered }: POSHeaderProps) {
                       />
                       <XAxis
                         dataKey="name"
-                        tick={{ fill: "#64748b", fontSize: 10 }}
+                        tick={{
+                          fill: "#94a3b8",
+                          fontSize: 10,
+                          fontWeight: "bold",
+                        }}
                         axisLine={false}
                         tickLine={false}
                       />
                       <YAxis
-                        tick={{ fill: "#64748b", fontSize: 10 }}
+                        tick={{
+                          fill: "#94a3b8",
+                          fontSize: 10,
+                          fontWeight: "bold",
+                        }}
                         axisLine={false}
                         tickLine={false}
                       />
                       <Tooltip
                         contentStyle={{
-                          borderRadius: "8px",
+                          borderRadius: "20px",
                           border: "none",
-                          boxShadow: "0 4px 6px -1px rgb(0 0 0 / 0.1)",
+                          boxShadow: "0 20px 25px -5px rgb(0 0 0 / 0.1)",
                           fontSize: "12px",
+                          fontWeight: "bold",
+                          padding: "12px 20px",
                         }}
                       />
-                      <Legend wrapperStyle={{ fontSize: "12px" }} />
+                      <Legend
+                        wrapperStyle={{
+                          display: "none", // ซ่อนเพื่อใช้ Legend ที่สร้างเองด้านบน
+                        }}
+                      />
                       <Line
                         type="monotone"
                         dataKey="topup"
-                        name="ยอดเติมเงิน"
-                        stroke="#16a34a"
-                        strokeWidth={2}
-                        dot={{ r: 3, fill: "#16a34a" }}
+                        name="Topup"
+                        stroke="#10b981"
+                        strokeWidth={4}
+                        dot={{
+                          r: 0, // ซ่อน dot ปกติเพื่อให้ดูคลีนขึ้น
+                        }}
+                        activeDot={{
+                          r: 6,
+                          fill: "#10b981",
+                          strokeWidth: 3,
+                          stroke: "#fff",
+                        }}
                       />
                       <Line
                         type="monotone"
                         dataKey="payment"
-                        name="ยอดชำระเงิน"
-                        stroke="#dc2626"
-                        strokeWidth={2}
-                        dot={{ r: 3, fill: "#dc2626" }}
+                        name="Payment"
+                        stroke="#f43f5e"
+                        strokeWidth={4}
+                        dot={{
+                          r: 0,
+                        }}
+                        activeDot={{
+                          r: 6,
+                          fill: "#f43f5e",
+                          strokeWidth: 3,
+                          stroke: "#fff",
+                        }}
                       />
                     </LineChart>
                   </ResponsiveContainer>
                 </div>
               </div>
             ) : (
-              <div className="flex items-center justify-center h-full text-slate-400 text-sm">
-                กำลังโหลดข้อมูล...
+              <div className="flex flex-col items-center justify-center h-full text-slate-400 gap-4">
+                <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
+                <p className="text-[10px] font-black uppercase tracking-widest italic">
+                  Synchronizing Business Intelligence...
+                </p>
               </div>
             )}
           </div>
@@ -562,39 +624,48 @@ export function POSHeader({ onMemberRegistered }: POSHeaderProps) {
 
       {/* --- SETTINGS POPUP --- */}
       <Dialog open={isSettingsOpen} onOpenChange={setIsSettingsOpen}>
-        <DialogContent className="max-w-[800px] max-h-[90vh] flex flex-col p-0 bg-white dark:bg-slate-900 dark:border-slate-800">
-          <DialogHeader className="px-6 py-3 border-b dark:border-slate-800">
-            <DialogTitle className="flex items-center gap-2 text-lg text-slate-800 dark:text-white">
-              <Settings className="h-5 w-5 text-slate-600 dark:text-slate-300" />{" "}
-              ตั้งค่าระบบ
+        <DialogContent className="max-w-[800px] max-h-[90vh] flex flex-col p-0 bg-white dark:bg-slate-900 dark:border-slate-800 rounded-[2rem] overflow-hidden">
+          <DialogHeader className="px-6 py-4 border-b dark:border-slate-800 bg-slate-50 dark:bg-slate-900">
+            <DialogTitle className="flex items-center gap-2 text-lg text-slate-800 dark:text-white uppercase font-black tracking-widest">
+              <Settings className="h-5 w-5 text-blue-600" /> System
+              Configuration
             </DialogTitle>
           </DialogHeader>
 
-          <div className="flex-1 overflow-y-auto p-5">
+          <div className="flex-1 overflow-y-auto p-6">
             <Tabs defaultValue="general" className="w-full">
-              <TabsList className="grid w-full grid-cols-3 mb-5 bg-slate-100 dark:bg-slate-800 h-9">
-                <TabsTrigger value="general" className="text-xs">
-                  ข้อมูลร้านค้า
+              <TabsList className="grid w-full grid-cols-3 mb-6 bg-slate-100 dark:bg-slate-800 h-10 p-1 rounded-xl">
+                <TabsTrigger
+                  value="general"
+                  className="text-xs font-bold rounded-lg"
+                >
+                  General Info
                 </TabsTrigger>
-                <TabsTrigger value="promotions" className="text-xs">
-                  โปรโมชั่น
+                <TabsTrigger
+                  value="promotions"
+                  className="text-xs font-bold rounded-lg"
+                >
+                  Marketing
                 </TabsTrigger>
-                <TabsTrigger value="tiers" className="text-xs">
-                  ระดับสมาชิก
+                <TabsTrigger
+                  value="tiers"
+                  className="text-xs font-bold rounded-lg"
+                >
+                  Membership
                 </TabsTrigger>
               </TabsList>
 
               <TabsContent value="general" className="space-y-4">
-                <div className="grid gap-3 border dark:border-slate-700 p-3 rounded-lg bg-white dark:bg-slate-800">
-                  <h3 className="text-sm font-medium text-slate-800 dark:text-slate-200">
-                    ข้อมูลพื้นฐาน
+                <div className="grid gap-3 border dark:border-slate-700 p-4 rounded-2xl bg-white dark:bg-slate-800 shadow-sm">
+                  <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest mb-2">
+                    Identity
                   </h3>
                   <div className="grid grid-cols-4 items-center gap-3">
-                    <Label className="text-right text-xs dark:text-slate-300">
-                      ชื่อร้าน
+                    <Label className="text-right text-xs font-bold dark:text-slate-300">
+                      Store Name
                     </Label>
                     <Input
-                      className="col-span-3 h-8 text-xs dark:bg-slate-700 dark:border-slate-600"
+                      className="col-span-3 h-9 text-xs dark:bg-slate-700 dark:border-slate-600 rounded-lg"
                       value={setting.name}
                       onChange={(e) =>
                         setSetting({ ...setting, name: e.target.value })
@@ -602,11 +673,11 @@ export function POSHeader({ onMemberRegistered }: POSHeaderProps) {
                     />
                   </div>
                   <div className="grid grid-cols-4 items-center gap-3">
-                    <Label className="text-right text-xs dark:text-slate-300">
-                      สาขา
+                    <Label className="text-right text-xs font-bold dark:text-slate-300">
+                      Location
                     </Label>
                     <Input
-                      className="col-span-3 h-8 text-xs dark:bg-slate-700 dark:border-slate-600"
+                      className="col-span-3 h-9 text-xs dark:bg-slate-700 dark:border-slate-600 rounded-lg"
                       value={setting.branch}
                       onChange={(e) =>
                         setSetting({ ...setting, branch: e.target.value })
@@ -615,17 +686,17 @@ export function POSHeader({ onMemberRegistered }: POSHeaderProps) {
                   </div>
                 </div>
 
-                <div className="grid gap-3 border dark:border-slate-700 p-3 rounded-lg bg-white dark:bg-slate-800">
-                  <h3 className="text-sm font-medium text-slate-800 dark:text-slate-200">
-                    การทำงาน
+                <div className="grid gap-3 border dark:border-slate-700 p-4 rounded-2xl bg-white dark:bg-slate-800 shadow-sm">
+                  <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest mb-2">
+                    Feature Controls
                   </h3>
                   <div className="flex items-center justify-between">
                     <div>
-                      <Label className="text-sm font-semibold dark:text-slate-200">
-                        ระบบสะสมแต้ม
+                      <Label className="text-sm font-bold dark:text-slate-200">
+                        Loyalty Points System
                       </Label>
-                      <p className="text-[10px] text-slate-500 dark:text-slate-400">
-                        {setting.isPointSystem ? "เปิดใช้งาน" : "ปิดใช้งาน"}
+                      <p className="text-[10px] text-slate-500 dark:text-slate-400 font-medium italic">
+                        Enable automatic point calculation for every payment
                       </p>
                     </div>
                     <label className="relative inline-flex items-center cursor-pointer">
@@ -640,43 +711,43 @@ export function POSHeader({ onMemberRegistered }: POSHeaderProps) {
                           })
                         }
                       />
-                      <div className="w-9 h-5 bg-gray-200 dark:bg-slate-600 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-blue-600"></div>
+                      <div className="w-10 h-5.5 bg-gray-200 dark:bg-slate-600 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4.5 after:w-4.5 after:transition-all peer-checked:bg-blue-600"></div>
                     </label>
                   </div>
                 </div>
               </TabsContent>
 
               <TabsContent value="promotions" className="space-y-3">
-                <div className="flex justify-between items-center mb-1">
-                  <p className="text-xs text-slate-500 dark:text-slate-400">
-                    กำหนดส่วนลด
-                  </p>
+                <div className="flex justify-between items-center mb-1 px-1">
+                  <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest">
+                    Campaigns
+                  </h3>
                   <Button
                     size="sm"
                     onClick={addPromo}
-                    className="h-7 text-xs gap-1.5 bg-green-600 hover:bg-green-700 text-white"
+                    className="h-8 text-xs gap-1.5 bg-slate-900 hover:bg-slate-800 text-white rounded-lg shadow-lg"
                   >
-                    <Plus className="h-3 w-3" /> เพิ่มโปรโมชั่น
+                    <Plus className="h-3.5 w-3.5" /> Add New
                   </Button>
                 </div>
-                <div className="space-y-1.5">
+                <div className="space-y-2">
                   {promotions.map((promo, idx) => (
                     <div
                       key={idx}
-                      className="flex gap-2 items-center p-2 border dark:border-slate-700 rounded-lg bg-slate-50 dark:bg-slate-800"
+                      className="flex gap-2 items-center p-3 border dark:border-slate-700 rounded-xl bg-slate-50 dark:bg-slate-800 shadow-inner"
                     >
-                      <Tag className="h-4 w-4 text-orange-500" />
+                      <Tag className="h-4 w-4 text-blue-600" />
                       <Input
-                        placeholder="ชื่อโปรโมชั่น"
+                        placeholder="Promo Name"
                         value={promo.promo_name}
                         onChange={(e) =>
                           updatePromo(idx, "promo_name", e.target.value)
                         }
-                        className="flex-1 h-8 text-xs"
+                        className="flex-1 h-9 text-xs font-bold"
                       />
                       <Input
                         type="number"
-                        className="w-20 h-8 font-bold text-red-500 text-xs text-right"
+                        className="w-24 h-9 font-black text-blue-600 text-xs text-right bg-white"
                         value={promo.discount_value}
                         onChange={(e) =>
                           updatePromo(
@@ -689,10 +760,10 @@ export function POSHeader({ onMemberRegistered }: POSHeaderProps) {
                       <Button
                         size="icon"
                         variant="ghost"
-                        className="h-8 w-8 text-red-500"
+                        className="h-9 w-9 text-slate-300 hover:text-red-500 hover:bg-red-50"
                         onClick={() => removePromo(idx)}
                       >
-                        <Trash2 className="h-3.5 w-3.5" />
+                        <Trash2 className="h-4 w-4" />
                       </Button>
                     </div>
                   ))}
@@ -700,19 +771,19 @@ export function POSHeader({ onMemberRegistered }: POSHeaderProps) {
               </TabsContent>
 
               <TabsContent value="tiers" className="space-y-3">
-                <p className="text-xs text-slate-500 dark:text-slate-400 mb-1">
-                  กำหนดเกณฑ์ยอดสะสม
-                </p>
+                <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest mb-3 px-1">
+                  Membership Tiers
+                </h3>
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                   {tiers.map((tier, idx) => (
                     <div
                       key={idx}
-                      className="border dark:border-slate-700 p-3 rounded-xl bg-white dark:bg-slate-800"
-                      style={{ borderTop: `3px solid ${tier.color}` }}
+                      className="border dark:border-slate-700 p-4 rounded-2xl bg-white dark:bg-slate-800 shadow-sm"
+                      style={{ borderTop: `4px solid ${tier.color}` }}
                     >
-                      <div className="flex items-center gap-1.5 mb-3">
+                      <div className="flex items-center gap-1.5 mb-4">
                         <Crown
-                          className="h-4 w-4"
+                          className="h-5 w-5"
                           style={{ color: tier.color }}
                         />
                         <Input
@@ -720,17 +791,17 @@ export function POSHeader({ onMemberRegistered }: POSHeaderProps) {
                           onChange={(e) =>
                             updateTier(idx, "name", e.target.value)
                           }
-                          className="font-bold border-none h-6 px-0 text-sm bg-transparent"
+                          className="font-black border-none h-6 px-0 text-sm bg-transparent uppercase tracking-wider"
                         />
                       </div>
-                      <div className="space-y-2">
+                      <div className="space-y-3">
                         <div>
-                          <Label className="text-[10px] text-slate-500">
-                            ยอดสะสมขั้นต่ำ
+                          <Label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
+                            Min Accumulate
                           </Label>
                           <Input
                             type="number"
-                            className="h-7 text-xs"
+                            className="h-8 text-xs font-bold mt-1"
                             value={tier.minSpend}
                             onChange={(e) =>
                               updateTier(
@@ -742,13 +813,13 @@ export function POSHeader({ onMemberRegistered }: POSHeaderProps) {
                           />
                         </div>
                         <div>
-                          <Label className="text-[10px] text-slate-500">
-                            ตัวคูณแต้ม
+                          <Label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
+                            Points Multiplier
                           </Label>
                           <Input
                             type="number"
                             step="0.1"
-                            className="h-7 text-xs"
+                            className="h-8 text-xs font-bold mt-1"
                             value={tier.multiplier}
                             onChange={(e) =>
                               updateTier(
@@ -760,12 +831,12 @@ export function POSHeader({ onMemberRegistered }: POSHeaderProps) {
                           />
                         </div>
                         <div>
-                          <Label className="text-[10px] text-slate-500">
-                            สีธีม (Hex)
+                          <Label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
+                            Theme Hex
                           </Label>
-                          <div className="flex gap-1.5">
+                          <div className="flex gap-2 mt-1">
                             <div
-                              className="w-7 h-7 rounded border shadow-sm shrink-0"
+                              className="w-8 h-8 rounded-lg border shadow-sm shrink-0"
                               style={{ backgroundColor: tier.color }}
                             ></div>
                             <Input
@@ -773,7 +844,7 @@ export function POSHeader({ onMemberRegistered }: POSHeaderProps) {
                               onChange={(e) =>
                                 updateTier(idx, "color", e.target.value)
                               }
-                              className="uppercase h-7 text-xs"
+                              className="uppercase h-8 text-xs font-mono font-bold"
                             />
                           </div>
                         </div>
@@ -785,26 +856,27 @@ export function POSHeader({ onMemberRegistered }: POSHeaderProps) {
             </Tabs>
           </div>
 
-          <DialogFooter className="p-3 border-t dark:border-slate-700 bg-slate-50 dark:bg-slate-800">
+          <DialogFooter className="p-4 border-t dark:border-slate-700 bg-slate-50 dark:bg-slate-900">
             <Button
-              variant="outline"
+              variant="ghost"
               size="sm"
               onClick={() => setIsSettingsOpen(false)}
+              className="text-slate-500 font-bold"
             >
-              ยกเลิก
+              Cancel
             </Button>
             <Button
               onClick={saveSettings}
               disabled={isLoadingSettings}
               size="sm"
-              className="bg-blue-600 hover:bg-blue-700 text-white gap-1.5"
+              className="bg-blue-600 hover:bg-blue-700 text-white gap-1.5 font-bold shadow-lg px-6 rounded-xl"
             >
               {isLoadingSettings ? (
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                <Loader2 className="h-4 w-4 animate-spin" />
               ) : (
-                <Save className="h-3.5 w-3.5" />
+                <Save className="h-4 w-4" />
               )}{" "}
-              บันทึก
+              Deploy Config
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -830,37 +902,50 @@ function DashboardCard({
 }: DashboardCardProps) {
   const colorClasses = {
     green:
-      "bg-green-100 text-green-600 dark:bg-green-900/30 dark:text-green-400",
-    red: "bg-red-100 text-red-600 dark:bg-red-900/30 dark:text-red-400",
-    blue: "bg-blue-100 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400",
+      "bg-emerald-50 text-emerald-600 dark:bg-emerald-900/20 dark:text-emerald-400 border-emerald-100 dark:border-emerald-800",
+    red: "bg-rose-50 text-rose-600 dark:bg-rose-900/20 dark:text-rose-400 border-rose-100 dark:border-rose-800",
+    blue: "bg-blue-50 text-blue-600 dark:bg-blue-900/20 dark:text-blue-400 border-blue-100 dark:border-blue-800",
   };
   const selectedColor = colorClasses[color].split(" ");
   return (
-    <div className="bg-white dark:bg-slate-900 p-4 rounded-xl shadow-sm border border-slate-100 dark:border-slate-800 relative overflow-hidden">
-      <div className="flex items-center gap-2 mb-1.5">
+    <div
+      className={`bg-white dark:bg-slate-900 p-6 rounded-[1.5rem] shadow-sm border ${selectedColor[4]} relative overflow-hidden group hover:shadow-lg transition-all`}
+    >
+      <div className="flex items-center gap-4 mb-3">
         <div
-          className={`p-1.5 rounded-lg ${selectedColor[0]} ${selectedColor[2]}`}
+          className={`p-3 rounded-2xl ${selectedColor[0]} ${selectedColor[2]}`}
         >
           {React.isValidElement(icon)
             ? React.cloneElement(
-                icon as React.ReactElement<{ className?: string }>,
+                icon as React.ReactElement<React.SVGProps<SVGSVGElement>>,
                 {
-                  className: `h-4 w-4 ${selectedColor[1]} ${selectedColor[3]}`,
+                  className: `h-6 w-6 ${selectedColor[1]} ${selectedColor[3]}`,
                 }
               )
             : icon}
         </div>
-        <p className="text-slate-500 dark:text-slate-400 text-xs font-medium">
+        <p className="text-slate-400 dark:text-slate-500 text-[10px] font-black uppercase tracking-[0.2em]">
           {label}
         </p>
       </div>
       <h3
-        className={`text-2xl font-bold ${selectedColor[1]} ${selectedColor[3]}`}
+        className={`text-3xl font-black tracking-tighter ${selectedColor[1]} ${selectedColor[3]}`}
       >
         {unit === "฿" || unit === ""
           ? `฿${value.toLocaleString()}`
           : `${value.toLocaleString()} ${unit}`}
       </h3>
+      <div
+        className={`absolute bottom-0 right-0 w-24 h-24 ${selectedColor[1]} opacity-[0.02] -mr-6 -mb-6 group-hover:scale-110 transition-transform`}
+      >
+        {React.isValidElement(icon) &&
+          React.cloneElement(
+            icon as React.ReactElement<React.SVGProps<SVGSVGElement>>,
+            {
+              className: "w-full h-full",
+            }
+          )}
+      </div>
     </div>
   );
 }

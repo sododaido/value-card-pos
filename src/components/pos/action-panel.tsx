@@ -13,6 +13,7 @@ import {
   Loader2,
   CheckCircle2, // ไอคอนสำเร็จ
   XCircle, // ไอคอนไม่สำเร็จ
+  Delete, // ไอคอนลบ (Clear)
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -27,8 +28,9 @@ import {
   DialogFooter,
   DialogDescription,
 } from "@/components/ui/dialog";
+import { toast } from "sonner";
 
-// ✅ 1. เพิ่ม Interface สำหรับข้อมูลดิบจาก API เพื่อแก้ Error Unexpected Any
+// ✅ 1. Interface สำหรับข้อมูลดิบจาก API เพื่อแก้ Error Unexpected Any
 interface APIPromotion {
   promo_id?: string;
   promo_name?: string;
@@ -39,7 +41,7 @@ interface APIPromotion {
   is_active?: boolean | string;
 }
 
-// ✅ 2. ปรับปรุง Interface หลักให้ตรงกับระบบจริง
+// ✅ 2. Interface หลักให้ตรงกับระบบจริง
 interface Promotion {
   promo_id: string;
   promo_name: string;
@@ -91,7 +93,64 @@ export function ActionPanel({
 
   const searchInputRef = useRef<HTMLInputElement>(null);
 
-  // ✅ แก้ไขบรรทัดที่ 97: ป้องกัน Error Cascading Renders ด้วยการใช้ setTimeout และเงื่อนไขที่รัดกุม
+  // ✅ [Sound Logic] แก้ไข Error Unexpected Any โดยการระบุ Type สำหรับ WebkitAudioContext
+  const playNotificationSound = (type: "SUCCESS" | "ERROR") => {
+    try {
+      const AudioCtxClass =
+        window.AudioContext ||
+        (window as unknown as { webkitAudioContext: typeof AudioContext })
+          .webkitAudioContext;
+      if (!AudioCtxClass) return;
+
+      const audioCtx = new AudioCtxClass();
+      const oscillator = audioCtx.createOscillator();
+      const gainNode = audioCtx.createGain();
+
+      oscillator.connect(gainNode);
+      gainNode.connect(audioCtx.destination);
+
+      if (type === "SUCCESS") {
+        oscillator.type = "sine";
+        oscillator.frequency.setValueAtTime(880, audioCtx.currentTime);
+        oscillator.frequency.exponentialRampToValueAtTime(
+          1320,
+          audioCtx.currentTime + 0.1
+        );
+        gainNode.gain.setValueAtTime(0.1, audioCtx.currentTime);
+        gainNode.gain.exponentialRampToValueAtTime(
+          0.01,
+          audioCtx.currentTime + 0.3
+        );
+        oscillator.start();
+        oscillator.stop(audioCtx.currentTime + 0.3);
+      } else {
+        oscillator.type = "sawtooth";
+        oscillator.frequency.setValueAtTime(220, audioCtx.currentTime);
+        oscillator.frequency.linearRampToValueAtTime(
+          110,
+          audioCtx.currentTime + 0.2
+        );
+        gainNode.gain.setValueAtTime(0.05, audioCtx.currentTime);
+        gainNode.gain.linearRampToValueAtTime(0.01, audioCtx.currentTime + 0.3);
+        oscillator.start();
+        oscillator.stop(audioCtx.currentTime + 0.3);
+      }
+    } catch (e) {
+      console.warn("Audio feedback error:", e);
+    }
+  };
+
+  // ✅ [Keyboard Shortcut Logic] ฟังก์ชันรีเซ็ตหน้าจอ
+  const handleGlobalReset = () => {
+    onReset();
+    setKeyword("");
+    setAmount("");
+    setSelectedPromo(null);
+    setNote("");
+    setTimeout(() => searchInputRef.current?.focus(), 100);
+  };
+
+  // ✅ ป้องกัน Error Cascading Renders
   useEffect(() => {
     if (memberId && memberId !== keyword) {
       const timer = setTimeout(() => {
@@ -101,7 +160,7 @@ export function ActionPanel({
     }
   }, [memberId, keyword]);
 
-  // ✅ 3. แก้ไขบรรทัดที่เคยติด Error 'any' โดยใช้ APIPromotion
+  // ✅ 3. ดึงข้อมูลโปรโมชั่น
   useEffect(() => {
     const fetchPromos = async () => {
       try {
@@ -127,31 +186,56 @@ export function ActionPanel({
     fetchPromos();
   }, []);
 
+  // ✅ ปรับปรุง Focus Management: คืน Focus ไปที่ช่อง Search เมื่อไม่มีการทำงานค้างอยู่
   useEffect(() => {
-    if (!isLoading && !memberId) {
+    if (
+      !isLoading &&
+      !memberId &&
+      !isEditOpen &&
+      !isPromoDialogOpen &&
+      !isConfirmOpen &&
+      !isResultOpen
+    ) {
       const timer = setTimeout(() => {
         searchInputRef.current?.focus();
       }, 100);
       return () => clearTimeout(timer);
     }
-  }, [isLoading, memberId]);
+  }, [
+    isLoading,
+    memberId,
+    isEditOpen,
+    isPromoDialogOpen,
+    isConfirmOpen,
+    isResultOpen,
+  ]);
 
+  // ✅ [ปรับปรุง] Logic การดักจับบาร์โค้ด และสั่งปิด Toast ก่อนค้นหาใหม่
   const handleKeywordChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const val = e.target.value;
     setKeyword(val);
 
-    if (
-      val.length === 10 ||
-      (val.toUpperCase().startsWith("CF") && val.length === 7) ||
-      val.length === 13
-    ) {
-      onSearch(val);
+    const cleanVal = val.trim();
+    // ✅ ส่ง Search เมื่อความยาวถึงจุดที่กำหนด และไม่อยู่ในสถานะ Loading
+    if (!isLoading && cleanVal) {
+      if (
+        cleanVal.length === 10 ||
+        (cleanVal.toUpperCase().startsWith("CF") && cleanVal.length >= 7) ||
+        cleanVal.length === 13
+      ) {
+        toast.dismiss(); // 🚨 เคลียร์หน้าจอก่อนยิง API ใหม่ เพื่อเปิดทางให้ Pop-up
+        onSearch(cleanVal);
+      }
     }
   };
 
+  // ✅ [ปรับปรุง] การ Search ผ่านฟอร์ม
   const handleSearchSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    onSearch(keyword);
+    if (keyword.trim() && !isLoading) {
+      toast.dismiss();
+      onSearch(keyword.trim());
+    }
   };
 
   const getNetAmount = () => {
@@ -165,7 +249,6 @@ export function ActionPanel({
     setIsConfirmOpen(true);
   };
 
-  // 🔥 ฟังก์ชันหลัก: จัดการ Popup ผลลัพธ์ และ Auto Close
   const handleConfirmTransaction = async () => {
     const finalAmount =
       activeTab === "PAYMENT" ? getNetAmount() : parseFloat(amount);
@@ -176,35 +259,29 @@ export function ActionPanel({
     }
 
     try {
-      // 1. เรียกฟังก์ชันหลักและรอผลลัพธ์ (true/false)
       const isSuccess = await onConfirm(activeTab, finalAmount, finalNote);
-
-      // 2. ปิดหน้าต่างยืนยันทันที
       setIsConfirmOpen(false);
 
-      // 3. ตั้งค่า Popup ตามผลลัพธ์จริง
       if (isSuccess) {
+        playNotificationSound("SUCCESS");
         setResultStatus("SUCCESS");
         setResultMessage("ทำรายการสำเร็จ");
-        // เคลียร์ค่าเมื่อสำเร็จ
         setAmount("");
         setSelectedPromo(null);
         setNote("");
       } else {
+        playNotificationSound("ERROR");
         setResultStatus("ERROR");
         setResultMessage("ทำรายการไม่สำเร็จ / ยอดเงินไม่พอ");
       }
 
-      // 4. เปิด Popup ผลลัพธ์
       setIsResultOpen(true);
-
-      // 5. 🔥 ตั้งเวลาปิดเองอัตโนมัติ 2 วินาที (2000ms)
       setTimeout(() => {
         setIsResultOpen(false);
       }, 2000);
     } catch (error) {
-      // กรณี Error หลุดมาจริงๆ
       setIsConfirmOpen(false);
+      playNotificationSound("ERROR");
       setResultStatus("ERROR");
       setResultMessage("เกิดข้อผิดพลาดในระบบ");
       setIsResultOpen(true);
@@ -213,6 +290,56 @@ export function ActionPanel({
       }, 2000);
     }
   };
+
+  // ✅ [ปรับปรุง] เพิ่ม Scanner Guard ที่แม่นยำขึ้น
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && !isEditOpen && !isPromoDialogOpen) {
+        if (isConfirmOpen) {
+          setIsConfirmOpen(false);
+        } else {
+          handleGlobalReset();
+        }
+      }
+
+      if (e.key === "Enter") {
+        // 🚨 [จุดแก้ไขสำคัญ] หากเครื่องสแกนส่ง Enter มาในขณะที่โฟกัสอยู่ที่ช่องค้นหา หรือระบบกำลังโหลด (isLoading)
+        // ให้หยุดการทำงานทันที เพื่อไม่ให้ Enter ทะลุไปกดปิด Dialog ลงทะเบียนที่กำลังจะเด้งขึ้นมา
+        if (document.activeElement === searchInputRef.current || isLoading) {
+          return;
+        }
+
+        if (isConfirmOpen) {
+          e.preventDefault();
+          handleConfirmTransaction();
+        } else if (
+          amount &&
+          parseFloat(amount) > 0 &&
+          memberId &&
+          !isEditOpen &&
+          !isPromoDialogOpen
+        ) {
+          if (document.activeElement?.tagName !== "TEXTAREA") {
+            e.preventDefault();
+            handlePreSubmit();
+          }
+        }
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [
+    amount,
+    memberId,
+    isConfirmOpen,
+    isEditOpen,
+    isPromoDialogOpen,
+    activeTab,
+    selectedPromo,
+    note,
+    isLoading, // ✅ ตรวจจับสถานะการโหลดเพื่อป้องกันเครื่องสแกนบาร์โค้ด
+  ]);
 
   const handleUpdateSubmit = () => {
     onUpdateMember({ name: editName, phone: editPhone });
@@ -224,9 +351,12 @@ export function ActionPanel({
     setAmount((current + val).toString());
   };
 
+  const clearAmount = () => {
+    setAmount("");
+  };
+
   return (
     <div className="flex flex-col h-full gap-3">
-      {/* ✅ ลดความสูงช่องค้นหา h-12 -> h-10 และฟอนต์ขนาดปกติ */}
       <form onSubmit={handleSearchSubmit} className="flex gap-2 shrink-0">
         <Input
           ref={searchInputRef}
@@ -235,6 +365,7 @@ export function ActionPanel({
           onChange={handleKeywordChange}
           className="flex-1 text-base h-10 dark:bg-slate-800 dark:border-slate-700"
           autoFocus
+          autoComplete="off"
         />
         <Button
           type="submit"
@@ -303,17 +434,10 @@ export function ActionPanel({
           type="button"
           variant="ghost"
           size="sm"
-          onClick={() => {
-            onReset();
-            setKeyword("");
-            setAmount("");
-            setSelectedPromo(null);
-            setNote("");
-            setTimeout(() => searchInputRef.current?.focus(), 100);
-          }}
+          onClick={handleGlobalReset}
           className="h-8 text-xs text-muted-foreground hover:text-red-500 dark:text-slate-400"
         >
-          <RotateCcw className="h-3.5 w-3.5 mr-1" /> รีเซ็ตหน้าจอ
+          <RotateCcw className="h-3.5 w-3.5 mr-1" /> รีเซ็ตหน้าจอ (Esc)
         </Button>
       </div>
 
@@ -328,7 +452,6 @@ export function ActionPanel({
           }}
           className="flex flex-col h-full"
         >
-          {/* ✅ ลดความสูง Tab List h-14 -> h-11 */}
           <TabsList className="grid w-full grid-cols-2 h-11 shrink-0 bg-slate-200 dark:bg-slate-800">
             <TabsTrigger
               value="TOPUP"
@@ -352,7 +475,6 @@ export function ActionPanel({
               <Label className="text-sm font-semibold dark:text-slate-200">
                 ระบุจำนวนเงินที่เติม
               </Label>
-              {/* ✅ ปรับลดขนาด Input ตัวเลขจาก 80px เป็น 5xl และ h-120 -> h-90 */}
               <Input
                 type="number"
                 placeholder="0"
@@ -361,7 +483,23 @@ export function ActionPanel({
                 onChange={(e) => setAmount(e.target.value)}
                 disabled={!memberId}
               />
-              <div className="grid grid-cols-3 gap-2">
+
+              <div className="grid grid-cols-4 gap-1.5">
+                {[1, 5, 10, 20].map((val) => (
+                  <Button
+                    key={val}
+                    variant="outline"
+                    size="sm"
+                    onClick={() => addAmount(val)}
+                    disabled={!memberId}
+                    className="h-8 text-xs font-bold dark:bg-slate-800 dark:border-slate-700"
+                  >
+                    +{val}
+                  </Button>
+                ))}
+              </div>
+
+              <div className="grid grid-cols-4 gap-1.5">
                 {[100, 500, 1000].map((val) => (
                   <Button
                     key={val}
@@ -369,12 +507,22 @@ export function ActionPanel({
                     size="sm"
                     onClick={() => addAmount(val)}
                     disabled={!memberId}
-                    className="dark:bg-slate-800 dark:text-white dark:border-slate-700"
+                    className="h-8 text-xs font-bold dark:bg-slate-800 dark:border-slate-700"
                   >
                     +{val}
                   </Button>
                 ))}
+                <Button
+                  variant="destructive"
+                  size="sm"
+                  onClick={clearAmount}
+                  disabled={!memberId || !amount}
+                  className="h-8 text-xs font-bold"
+                >
+                  <Delete className="h-3.5 w-3.5 mr-1" /> ล้าง
+                </Button>
               </div>
+
               <Input
                 placeholder="หมายเหตุ (ถ้ามี)..."
                 value={note}
@@ -383,7 +531,6 @@ export function ActionPanel({
                 className="h-9 text-sm dark:bg-slate-800 dark:border-slate-700"
               />
             </div>
-            {/* ✅ ลดความสูงปุ่มยืนยัน h-16 -> h-12 */}
             <div className="p-2 border-t dark:border-slate-700 mt-auto shrink-0">
               <Button
                 size="lg"
@@ -391,7 +538,7 @@ export function ActionPanel({
                 disabled={!memberId || !amount || isLoading}
                 onClick={handlePreSubmit}
               >
-                ยืนยันเติมเงิน
+                ยืนยันเติมเงิน (Enter)
               </Button>
             </div>
           </TabsContent>
@@ -497,7 +644,23 @@ export function ActionPanel({
                   </span>
                 </div>
               )}
-              <div className="grid grid-cols-3 gap-2">
+
+              <div className="grid grid-cols-4 gap-1.5">
+                {[1, 5, 10, 20].map((val) => (
+                  <Button
+                    key={val}
+                    variant="outline"
+                    size="sm"
+                    onClick={() => addAmount(val)}
+                    disabled={!memberId}
+                    className="h-8 text-xs font-bold dark:bg-slate-800 dark:text-white dark:border-slate-700"
+                  >
+                    +{val}
+                  </Button>
+                ))}
+              </div>
+
+              <div className="grid grid-cols-4 gap-1.5">
                 {[100, 500, 1000].map((val) => (
                   <Button
                     key={val}
@@ -505,12 +668,22 @@ export function ActionPanel({
                     size="sm"
                     onClick={() => addAmount(val)}
                     disabled={!memberId}
-                    className="h-8 dark:bg-slate-800 dark:text-white dark:border-slate-700"
+                    className="h-8 text-xs font-bold dark:bg-slate-800 dark:text-white dark:border-slate-700"
                   >
                     +{val}
                   </Button>
                 ))}
+                <Button
+                  variant="destructive"
+                  size="sm"
+                  onClick={clearAmount}
+                  disabled={!memberId || !amount}
+                  className="h-8 text-xs font-bold"
+                >
+                  <Delete className="h-3.5 w-3.5 mr-1" /> ล้าง
+                </Button>
               </div>
+
               <Input
                 placeholder="หมายเหตุ (ถ้ามี)..."
                 value={note}
@@ -519,23 +692,20 @@ export function ActionPanel({
                 className="h-9 text-sm dark:bg-slate-800 dark:border-slate-700"
               />
             </div>
-            {/* ✅ ลดความสูงปุ่มยืนยัน h-16 -> h-12 */}
             <div className="p-2 border-t dark:border-slate-700 mt-auto shrink-0">
               <Button
                 size="lg"
-                className="w-full h-12 text-lg bg-red-600 hover:bg-red-700 text-white shadow-md"
+                className="w-full h-12 text-lg bg-green-600 hover:bg-green-700 text-white shadow-md"
                 disabled={!memberId || !amount || isLoading}
                 onClick={handlePreSubmit}
               >
-                ยืนยันชำระเงิน{" "}
-                {selectedPromo ? `(฿${getNetAmount().toLocaleString()})` : ""}
+                ยืนยันชำระเงิน (Enter)
               </Button>
             </div>
           </TabsContent>
         </Tabs>
       </div>
 
-      {/* Dialog ยืนยันทำรายการ */}
       <Dialog open={isConfirmOpen} onOpenChange={setIsConfirmOpen}>
         <DialogContent className="sm:max-w-md dark:bg-slate-900 dark:border-slate-800">
           <DialogHeader>
@@ -581,7 +751,7 @@ export function ActionPanel({
               onClick={() => setIsConfirmOpen(false)}
               disabled={isLoading}
             >
-              ยกเลิก
+              ยกเลิก (Esc)
             </Button>
             <Button
               size="sm"
@@ -591,13 +761,12 @@ export function ActionPanel({
               onClick={handleConfirmTransaction}
               disabled={isLoading}
             >
-              ยืนยัน
+              ยืนยัน (Enter)
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      {/* Dialog ผลลัพธ์ (Success / Fail) */}
       <Dialog open={isResultOpen} onOpenChange={setIsResultOpen}>
         <DialogContent className="sm:max-w-xs text-center flex flex-col items-center justify-center p-6 dark:bg-slate-900 dark:border-slate-800">
           <div

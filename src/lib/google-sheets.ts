@@ -17,8 +17,11 @@ export interface Tier {
   color: string;
 }
 
-// ✅ ส่วนที่แก้ไข: เพิ่มระบบ Cache ระดับ Global เพื่อป้องกัน Error 429 Quota Exceeded
+// ✅ ส่วนที่แก้ไข: เปลี่ยนจาก any[] เป็น Member[] เพื่อแก้ Error
 let cachedDoc: GoogleSpreadsheet | null = null;
+let cachedMembers: Member[] | null = null;
+let lastFetchTime = 0;
+const CACHE_TTL = 5000; // เก็บ Cache ไว้ 5 วินาที
 
 export async function getDoc() {
   if (!process.env.GOOGLE_PRIVATE_KEY || !process.env.GOOGLE_SHEET_ID) {
@@ -48,12 +51,18 @@ export async function getDoc() {
 
 // === Helper Functions ===
 
-export async function getAllMembers() {
+export async function getAllMembers(): Promise<Member[]> {
+  // ✅ ใช้ Cache หากข้อมูลยังใหม่ (ไม่เกิน 5 วินาที)
+  const now = Date.now();
+  if (cachedMembers && now - lastFetchTime < CACHE_TTL) {
+    return cachedMembers;
+  }
+
   const doc = await getDoc();
   const sheet = doc.sheetsByTitle["Members"];
   const rows = await sheet.getRows();
 
-  return rows.map((row) => {
+  const members: Member[] = rows.map((row) => {
     const cardId = row.get("card_id");
     const cleanCardId = cardId ? String(cardId).trim() : "";
 
@@ -68,9 +77,12 @@ export async function getAllMembers() {
       total_spent: parseFloat(row.get("total_spent") || "0"),
       joined_date: row.get("joined_date"),
       updated_at: row.get("updated_at"),
-      row_number: row.rowNumber,
     };
   });
+
+  cachedMembers = members;
+  lastFetchTime = now;
+  return members;
 }
 
 export async function getMemberByCardId(cardId: string) {
@@ -86,7 +98,7 @@ export async function getMemberByPhone(phone: string) {
 }
 
 /**
- * ✅ แก้ไข: ฟังก์ชันสร้างสมาชิกโดยดึง card_id ที่ว่างจาก Sheet
+ * ✅ ฟังก์ชันสร้างสมาชิกโดยดึง card_id ที่ว่างจาก Sheet
  */
 export async function createMember(data: { name: string; phone: string }) {
   const doc = await getDoc();
@@ -112,6 +124,7 @@ export async function createMember(data: { name: string; phone: string }) {
     emptyRow.set("updated_at", new Date().toISOString());
 
     await emptyRow.save();
+    cachedMembers = null; // Clear cache เมื่อมีการเปลี่ยนแปลง
     return {
       member_id: cardId,
       card_id: cardId,
@@ -157,6 +170,7 @@ export async function createMember(data: { name: string; phone: string }) {
   };
 
   await sheet.addRow(newMember);
+  cachedMembers = null; // Clear cache
   return { ...newMember, member_id: nextCardId };
 }
 
@@ -183,6 +197,7 @@ export async function updateMember(cardId: string, data: Partial<Member>) {
   row.set("updated_at", new Date().toISOString());
 
   await row.save();
+  cachedMembers = null; // Clear cache เมื่อมีการอัปเดตข้อมูลสมาชิก
   return true;
 }
 
@@ -450,9 +465,6 @@ export async function updatePromotions(
   return true;
 }
 
-/**
- * ✅ ระบบจัดการระดับสมาชิก (Tiers) - แก้ไขป้องกันข้อมูลซ้ำและแถวว่าง
- */
 export async function getTiers(): Promise<Tier[]> {
   const doc = await getDoc();
   let sheet = doc.sheetsByTitle["Tiers"];
@@ -494,7 +506,6 @@ export async function getTiers(): Promise<Tier[]> {
 
   for (const row of rows) {
     const name = row.get("name");
-    // ข้ามแถวที่ไม่มีชื่อ หรือชื่อซ้ำกับที่เคยเจอแล้ว (ป้องกันการแสดงผล 2 ชุด)
     if (!name || seenNames.has(name.toLowerCase())) continue;
 
     seenNames.add(name.toLowerCase());
@@ -516,7 +527,6 @@ export async function updateTiers(tiers: Tier[]) {
   if (!sheet) return false;
 
   const rows = await sheet.getRows();
-  // ลบข้อมูลเก่าทั้งหมดก่อนเขียนใหม่
   for (const row of rows) {
     await row.delete();
   }
@@ -534,9 +544,6 @@ export async function updateTiers(tiers: Tier[]) {
   return true;
 }
 
-/**
- * ✅ ระบบอัปเดตระดับสมาชิกอัตโนมัติ (Auto-Upgrade)
- */
 export async function autoUpdateMemberTier(cardId: string, totalSpent: number) {
   const tiers = await getTiers();
   const sortedTiers = [...tiers].sort((a, b) => b.minSpend - a.minSpend);

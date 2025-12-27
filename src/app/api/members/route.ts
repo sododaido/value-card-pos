@@ -1,12 +1,14 @@
 // ไฟล์: src/app/api/members/route.ts
 import { NextResponse } from "next/server";
 import {
-  getDoc, // ✅ นำเข้าเพิ่ม
+  getDoc,
   getAllMembers,
   getMemberByPhone,
   createMember,
   updateMember,
 } from "@/lib/google-sheets";
+// ✅ นำเข้าฟังก์ชัน Telegram
+import { sendTelegramNotify, formatNotifyMessage } from "@/lib/telegram";
 
 export const dynamic = "force-dynamic";
 
@@ -15,7 +17,6 @@ export async function GET(request: Request) {
     const { searchParams } = new URL(request.url);
     const query = searchParams.get("search");
 
-    // ✅ โหลด Google Sheet เพียงครั้งเดียว
     const doc = await getDoc();
     await doc.loadInfo();
 
@@ -30,24 +31,36 @@ export async function GET(request: Request) {
     if (isPhone) {
       member = await getMemberByPhone(query);
     } else {
-      // ค้นหาในลิสต์ทั้งหมดเพื่อความรวดเร็ว ลด Request
       const members = await getAllMembers();
       member = members.find(
         (m) => m.card_id && m.card_id.toLowerCase() === query.toLowerCase()
       );
     }
 
-    if (!member) {
-      return NextResponse.json({ error: "ไม่พบข้อมูลสมาชิก" }, { status: 404 });
+    // ✅ [จุดแก้ไขเด็ดขาด] เปลี่ยนจาก Error 404 เป็น 200 พร้อม Flag พิเศษ
+    // เพื่อป้องกันระบบ Global Toaster พ่นแถบสีแดง CARD_NOT_ACTIVATED ออกมาขวางหน้าจอ
+
+    // 1. กรณีไม่พบรหัสบัตรเลย หรือ พบแต่ข้อมูลไม่ครบ (บัตรเปล่า)
+    const hasProfile = member && member.name && member.name.trim() !== "";
+
+    if (!member || !hasProfile) {
+      return NextResponse.json(
+        {
+          card_id: member?.card_id || query,
+          isUnregistered: true, // ✅ ส่ง Flag นี้แทนการส่ง Error String
+          isActive: false,
+        },
+        { status: 200 } // ✅ บังคับส่ง 200 เพื่อให้ระบบมองว่า "สำเร็จ" (แต่ต้องลงทะเบียน)
+      );
     }
 
+    // 3. กรณีเป็นสมาชิกที่ลงทะเบียนข้อมูลครบถ้วนแล้ว
     return NextResponse.json({ ...member, isActive: true });
   } catch (error) {
     console.error("API Error (Members):", error);
-    // ส่งข้อมูล Error ที่ชัดเจนขึ้น
     return NextResponse.json(
       {
-        error: error instanceof Error ? error.message : "Internal Server Error",
+        error: "INTERNAL_SERVER_ERROR",
       },
       { status: 500 }
     );
@@ -64,21 +77,34 @@ export async function POST(request: Request) {
 
     const existingMember = await getMemberByPhone(phone);
     if (existingMember) {
-      return NextResponse.json(
-        { error: "เบอร์โทรนี้มีในระบบแล้ว" },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: "DUPLICATE_PHONE" }, { status: 400 });
     }
 
-    // ✅ เรียกใช้ createMember ที่แก้ไขใหม่ ซึ่งจะคืนค่า card_id จริงจาก Sheet กลับมา
+    // 1. สร้างสมาชิกใหม่ใน Google Sheets
     const newMember = await createMember({ name, phone });
 
-    // คืนข้อมูลสมาชิกใหม่พร้อม card_id ให้หน้าบ้าน
+    // ✅ 2. จัดการส่งแจ้งเตือน Telegram เมื่อสมัครสำเร็จ
+    const runNotifyTask = async () => {
+      try {
+        const regMsg = formatNotifyMessage("REGISTER", {
+          name: newMember.name,
+          card_id: newMember.card_id,
+          phone: newMember.phone,
+        });
+        await sendTelegramNotify(regMsg);
+      } catch (notifyError) {
+        console.error("Telegram Notify Error (Register):", notifyError);
+      }
+    };
+
+    // เรียกทำงานเบื้องหลัง
+    runNotifyTask();
+
     return NextResponse.json(newMember);
   } catch (error) {
     console.error("POST Member Error:", error);
     return NextResponse.json(
-      { error: "Failed to create member" },
+      { error: "FAILED_TO_CREATE_MEMBER" },
       { status: 500 }
     );
   }
@@ -94,11 +120,11 @@ export async function PUT(request: Request) {
 
     const success = await updateMember(card_id, { name, phone });
     if (!success)
-      return NextResponse.json({ error: "Member not found" }, { status: 404 });
+      return NextResponse.json({ error: "MEMBER_NOT_FOUND" }, { status: 404 });
     return NextResponse.json({ success: true });
   } catch (error) {
     return NextResponse.json(
-      { error: "Failed to update member" },
+      { error: "FAILED_TO_UPDATE_MEMBER" },
       { status: 500 }
     );
   }

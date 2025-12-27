@@ -7,6 +7,8 @@ import {
   getTiers, // ✅ เพิ่มการดึงข้อมูล Tiers
   autoUpdateMemberTier, // ✅ เพิ่มฟังก์ชันอัปเดตระดับอัตโนมัติ
 } from "@/lib/google-sheets";
+// ✅ นำเข้าฟังก์ชัน Telegram เพิ่มเติม
+import { sendTelegramNotify, formatNotifyMessage } from "@/lib/telegram";
 
 export const dynamic = "force-dynamic";
 
@@ -18,15 +20,18 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "ข้อมูลไม่ครบถ้วน" }, { status: 400 });
     }
 
-    // 1. ดึงข้อมูลสมาชิกล่าสุดจาก Sheet
-    const member = await getMemberByCardId(card_id);
+    // 1. ดึงข้อมูลสมาชิกล่าสุด, ตั้งค่า และ Tiers พร้อมกันเพื่อความเร็ว
+    const [member, settings, tiers] = await Promise.all([
+      getMemberByCardId(card_id),
+      getAppSettings(),
+      getTiers(),
+    ]);
+
     if (!member) {
       return NextResponse.json({ error: "ไม่พบสมาชิก" }, { status: 404 });
     }
 
     // ✅ ดึงข้อมูลการตั้งค่าและระดับสมาชิกปัจจุบัน
-    const settings = await getAppSettings();
-    const tiers = await getTiers();
     const currentTier = tiers.find((t) => t.name === member.tier) || tiers[0];
 
     const currentBalance = member.balance;
@@ -52,8 +57,6 @@ export async function POST(req: Request) {
       }
 
       newBalance -= amount;
-
-      // (เลือกเปิดได้: หากต้องการให้แต้มตอนชำระเงินแทนการเติมเงิน ให้ย้าย Logic pointsEarned มาไว้ตรงนี้)
     }
 
     // คำนวณยอดใช้จ่ายสะสมใหม่
@@ -67,21 +70,42 @@ export async function POST(req: Request) {
       total_spent: newTotalSpent,
     });
 
-    // ✅ 3.5 ตรวจสอบและอัปเกรดระดับสมาชิกอัตโนมัติ (Auto Tier Upgrade)
-    await autoUpdateMemberTier(card_id, newTotalSpent);
+    // ✅ ส่วนที่เพิ่ม: จัดการงานเบื้องหลัง (Background Tasks) ทั้งหมดรวมถึง Telegram
+    const runSecondaryTasks = async () => {
+      try {
+        await Promise.all([
+          // 3.5 ตรวจสอบและอัปเกรดระดับสมาชิกอัตโนมัติ
+          autoUpdateMemberTier(card_id, newTotalSpent),
+          // 4. บันทึกประวัติ Transaction
+          createTransaction({
+            member_id: member.member_id,
+            card_id: member.card_id,
+            type,
+            amount,
+            balance_before: currentBalance,
+            balance_after: newBalance,
+            points_earned: pointsEarned,
+            note,
+            staff_name: "Staff",
+          }),
+        ]);
 
-    // 4. บันทึกประวัติ Transaction
-    await createTransaction({
-      member_id: member.member_id,
-      card_id: member.card_id,
-      type,
-      amount,
-      balance_before: currentBalance,
-      balance_after: newBalance,
-      points_earned: pointsEarned,
-      note,
-      staff_name: "Staff",
-    });
+        // ✅ 5. ส่งการแจ้งเตือน Telegram (ครอบคลุมทั้ง TOPUP และ PAYMENT)
+        const telegramMsg = formatNotifyMessage(type, {
+          name: member.name,
+          card_id: member.card_id,
+          amount: amount,
+          balance_after: newBalance,
+          points_earned: pointsEarned,
+        });
+        await sendTelegramNotify(telegramMsg);
+      } catch (err) {
+        console.error("Secondary Tasks Error (Balance):", err);
+      }
+    };
+
+    // เรียกทำงานเบื้องหลังทันที
+    runSecondaryTasks();
 
     return NextResponse.json({
       success: true,

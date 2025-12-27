@@ -29,14 +29,14 @@ export default function RootLayout({
   return (
     <html lang="th" suppressHydrationWarning>
       <body
-        className={`${inter.className} bg-background dark:bg-[#0F172A] transition-colors duration-300`}
-        suppressHydrationWarning={true} // ✅ เพิ่มบรรทัดนี้เพื่อแก้ Error ครับ
+        className={`${inter.className} bg-background dark:bg-[#0F172A] transition-colors duration-500`} // ✅ ปรับ duration-300 เป็น 500 เพื่อความนุ่มนวลเวลาสลับโหมด
+        suppressHydrationWarning={true}
       >
         <ThemeProvider
           attribute="class"
           defaultTheme="system"
           enableSystem
-          disableTransitionOnChange
+          disableTransitionOnChange={false} // ✅ เปลี่ยนเป็น false เพื่อให้เห็น Animation เวลาสลับสวิตช์ใน Header
         >
           {children}
           <Toaster position="top-center" richColors />
