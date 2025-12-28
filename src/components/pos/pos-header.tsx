@@ -639,30 +639,30 @@ export function POSHeader({ onMemberRegistered }: POSHeaderProps) {
                   value="general"
                   className="text-xs font-bold rounded-lg"
                 >
-                  General Info
+                  ข้อมูลทั่วไป
                 </TabsTrigger>
                 <TabsTrigger
                   value="promotions"
                   className="text-xs font-bold rounded-lg"
                 >
-                  Marketing
+                  โปรโมชั่น
                 </TabsTrigger>
                 <TabsTrigger
                   value="tiers"
                   className="text-xs font-bold rounded-lg"
                 >
-                  Membership
+                  ระดับสมาชิก
                 </TabsTrigger>
               </TabsList>
 
               <TabsContent value="general" className="space-y-4">
                 <div className="grid gap-3 border dark:border-slate-700 p-4 rounded-2xl bg-white dark:bg-slate-800 shadow-sm">
                   <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest mb-2">
-                    Identity
+                    ข้อมูลร้านค้า
                   </h3>
                   <div className="grid grid-cols-4 items-center gap-3">
                     <Label className="text-right text-xs font-bold dark:text-slate-300">
-                      Store Name
+                      ชื่อร้าน
                     </Label>
                     <Input
                       className="col-span-3 h-9 text-xs dark:bg-slate-700 dark:border-slate-600 rounded-lg"
@@ -674,7 +674,7 @@ export function POSHeader({ onMemberRegistered }: POSHeaderProps) {
                   </div>
                   <div className="grid grid-cols-4 items-center gap-3">
                     <Label className="text-right text-xs font-bold dark:text-slate-300">
-                      Location
+                      สาขา
                     </Label>
                     <Input
                       className="col-span-3 h-9 text-xs dark:bg-slate-700 dark:border-slate-600 rounded-lg"
@@ -688,15 +688,15 @@ export function POSHeader({ onMemberRegistered }: POSHeaderProps) {
 
                 <div className="grid gap-3 border dark:border-slate-700 p-4 rounded-2xl bg-white dark:bg-slate-800 shadow-sm">
                   <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest mb-2">
-                    Feature Controls
+                    ควบคุมฟีเจอร์
                   </h3>
                   <div className="flex items-center justify-between">
                     <div>
                       <Label className="text-sm font-bold dark:text-slate-200">
-                        Loyalty Points System
+                        ระบบสะสมคะแนน
                       </Label>
                       <p className="text-[10px] text-slate-500 dark:text-slate-400 font-medium italic">
-                        Enable automatic point calculation for every payment
+                        เปิดใช้งานระบบคำนวณแต้มอัตโนมัติทุกครั้งที่มีการชำระเงิน
                       </p>
                     </div>
                     <label className="relative inline-flex items-center cursor-pointer">
@@ -876,7 +876,7 @@ export function POSHeader({ onMemberRegistered }: POSHeaderProps) {
               ) : (
                 <Save className="h-4 w-4" />
               )}{" "}
-              Deploy Config
+              confirm
             </Button>
           </DialogFooter>
         </DialogContent>

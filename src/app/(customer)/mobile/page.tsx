@@ -54,7 +54,7 @@ function MobileLoginContent() {
             <Smartphone className="text-white h-10 w-10" />
           </div>
           <h1 className="text-3xl font-black text-slate-900 tracking-tight uppercase">
-            Value Card
+            Easy cafe
           </h1>
           <p className="text-slate-500 font-medium italic">
             Check Balance & Points
